@@ -76,8 +76,7 @@ public static partial class LireHEndpoints
 
             try
             {
-                await using var conn = new OracleConnection(ConnectionStore.ConnectionString(cfg));
-                await conn.OpenAsync(ctx.RequestAborted);
+                await using var conn = await OracleErrors.OpenAsync(cfg, ctx);
 
                 using var zipBuffer = new MemoryStream();
                 var position = 1;
@@ -129,7 +128,7 @@ public static partial class LireHEndpoints
             catch (OracleException ex)
             {
                 lf.CreateLogger("LireH").LogError(ex, "Lecture {Object} sur {Connection} impossible", name, connName);
-                return Results.Json(new { error = "Lecture impossible", detail = ex.Message }, statusCode: 500);
+                return Results.Json(new { error = "Lecture impossible", detail = OracleErrors.Describe(ex, connName) }, statusCode: 502);
             }
         });
 

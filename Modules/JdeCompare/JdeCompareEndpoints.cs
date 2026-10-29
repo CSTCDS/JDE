@@ -63,7 +63,8 @@ public static partial class JdeCompareEndpoints
             catch (OracleException ex)
             {
                 logger.LogError(ex, "Erreur Oracle sur {Path}", ctx.HttpContext.Request.Path);
-                return Results.Problem(title: "Erreur Oracle", detail: ex.Message, statusCode: StatusCodes.Status502BadGateway);
+                var detail = OracleErrors.Describe(ex, OracleErrors.FailedConnection(ctx.HttpContext));
+                return Results.Problem(title: "Erreur Oracle", detail: detail, statusCode: StatusCodes.Status502BadGateway);
             }
         });
 
@@ -102,8 +103,7 @@ public static partial class JdeCompareEndpoints
             if (string.IsNullOrWhiteSpace(q) || q.Trim().Length < 3) return Results.Ok(Array.Empty<object>());
             if (Reference(ctx, store, out var cfg) is { } err) return err;
 
-            await using var conn = new OracleConnection(ConnectionStore.ConnectionString(cfg));
-            await conn.OpenAsync(ctx.RequestAborted);
+            await using var conn = await OracleErrors.OpenAsync(cfg, ctx);
             await using var cmd = Cmd(conn, $@"SELECT SIOBNM, SIFUNO, SIMD FROM {ol}.F9860
 WHERE UPPER(SIOBNM) LIKE '%' || UPPER(:q) || '%' ORDER BY SIOBNM FETCH FIRST :lim ROWS ONLY");
             cmd.Parameters.Add(P("q", q.Trim()));
@@ -121,8 +121,7 @@ WHERE UPPER(SIOBNM) LIKE '%' || UPPER(:q) || '%' ORDER BY SIOBNM FETCH FIRST :li
             if (string.IsNullOrWhiteSpace(q) || q.Trim().Length < 3) return Results.Ok(Array.Empty<object>());
             if (Reference(ctx, store, out var cfg) is { } err) return err;
 
-            await using var conn = new OracleConnection(ConnectionStore.ConnectionString(cfg));
-            await conn.OpenAsync(ctx.RequestAborted);
+            await using var conn = await OracleErrors.OpenAsync(cfg, ctx);
             await using var cmd = Cmd(conn, $@"SELECT PMOMWPRJID, PMOMWPS, PMOMWDESC FROM {SystemSchema(cfg)}.F98220
 WHERE UPPER(PMOMWPRJID) LIKE '%' || UPPER(:q) || '%' ORDER BY PMOMWPRJID FETCH FIRST :lim ROWS ONLY");
             cmd.Parameters.Add(P("q", q.Trim()));
@@ -139,8 +138,7 @@ WHERE UPPER(PMOMWPRJID) LIKE '%' || UPPER(:q) || '%' ORDER BY PMOMWPRJID FETCH F
         {
             if (Reference(ctx, store, out var cfg) is { } err) return err;
 
-            await using var conn = new OracleConnection(ConnectionStore.ConnectionString(cfg));
-            await conn.OpenAsync(ctx.RequestAborted);
+            await using var conn = await OracleErrors.OpenAsync(cfg, ctx);
             await using var cmd = Cmd(conn, $@"SELECT DISTINCT PMOMWPS FROM {SystemSchema(cfg)}.F98220
 WHERE PMOMWPS IS NOT NULL AND PMUPMJ > 125001 ORDER BY PMOMWPS");
             var statuses = new List<string>();
@@ -155,8 +153,7 @@ WHERE PMOMWPS IS NOT NULL AND PMUPMJ > 125001 ORDER BY PMOMWPS");
             if (string.IsNullOrWhiteSpace(status)) return Results.BadRequest(new { error = "Paramètre status requis." });
             if (Reference(ctx, store, out var cfg) is { } err) return err;
 
-            await using var conn = new OracleConnection(ConnectionStore.ConnectionString(cfg));
-            await conn.OpenAsync(ctx.RequestAborted);
+            await using var conn = await OracleErrors.OpenAsync(cfg, ctx);
             await using var cmd = Cmd(conn, $@"SELECT PMOMWPRJID, PMOMWPS, PMOMWDESC FROM {SystemSchema(cfg)}.F98220
 WHERE TRIM(PMOMWPS) = TRIM(:st) ORDER BY PMOMWPRJID");
             cmd.Parameters.Add(P("st", status.Trim()));
@@ -173,8 +170,7 @@ WHERE TRIM(PMOMWPS) = TRIM(:st) ORDER BY PMOMWPRJID");
             if (string.IsNullOrWhiteSpace(prj)) return Results.BadRequest(new { error = "Paramètre prj requis." });
             if (Reference(ctx, store, out var cfg) is { } err) return err;
 
-            await using var conn = new OracleConnection(ConnectionStore.ConnectionString(cfg));
-            await conn.OpenAsync(ctx.RequestAborted);
+            await using var conn = await OracleErrors.OpenAsync(cfg, ctx);
             await using var cmd = Cmd(conn, $@"SELECT f222.POOMWOBJID, f222.POOMWOT, f860.SIMD
 FROM {SystemSchema(cfg)}.F98222 f222
 LEFT JOIN {ol}.F9860 f860 ON TRIM(f860.SIOBNM) = TRIM(f222.POOMWOBJID)
@@ -210,12 +206,9 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
             var tgtSchema = environments.Keys.First(k => k.Equals(body.Target, StringComparison.OrdinalIgnoreCase));
             var specs = new SpecReader(Cmd, ol);
 
-            await using var refConn = new OracleConnection(ConnectionStore.ConnectionString(refCfg));
-            await refConn.OpenAsync(ctx.RequestAborted);
-            await using var srcConn = new OracleConnection(ConnectionStore.ConnectionString(srcCfg));
-            await srcConn.OpenAsync(ctx.RequestAborted);
-            await using var tgtConn = new OracleConnection(ConnectionStore.ConnectionString(tgtCfg));
-            await tgtConn.OpenAsync(ctx.RequestAborted);
+            await using var refConn = await OracleErrors.OpenAsync(refCfg, ctx);
+            await using var srcConn = await OracleErrors.OpenAsync(srcCfg, ctx);
+            await using var tgtConn = await OracleErrors.OpenAsync(tgtCfg, ctx);
 
             var results = new List<object>();
             var codes = new List<string>();

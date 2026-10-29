@@ -37,6 +37,27 @@ Fusion de **Lire .h** (ex-`Utils.htm` d'appli-jade03) et **JDE Compare** (ex-NER
 - JDE Compare : la connexion de référence est choisie dans le bandeau (cookie `JDE-Connection`) ;
   `JdeCompare:Environments` associe chaque environnement JDE à une connexion (ordre = source/cible par défaut).
 
+### Adressage (EZConnect) et surcharge serveur
+
+- `DataSource` est en **EZConnect** (`host_jde92eX:1521/jde92eX`) : aucun client Oracle ni `tnsnames.ora` requis.
+- Pour changer une adresse sur le serveur sans relivrer : copier `appsettings.Production.template.json`
+  en `C:\sites\JDE\appsettings.Production.json`, ne garder que les valeurs utiles, recycler le pool.
+  Ce fichier n'est ni versionné, ni publié, ni écrasé par `Install-UPD*.ps1`.
+- Alias TNS possible : renseigner `TnsAdmin` (dossier contenant `tnsnames.ora`, appliqué une fois au démarrage) et `DataSource` = alias.
+
+### Erreurs Oracle affichées
+
+| Code | Message | Action |
+|---|---|---|
+| ORA-12154 / 12262 | Identifiant de connexion introuvable | Vérifier `DataSource` (host:port/service) ou `TnsAdmin` |
+| ORA-12545 | Hôte introuvable (DNS) | Vérifier le nom d'hôte depuis le serveur |
+| ORA-12541 | Aucun listener | Vérifier hôte et port |
+| ORA-12514 / 12505 | Service inconnu | Vérifier le service après `/` |
+| ORA-12170 / 12543 / 12535 | Injoignable / délai dépassé | Réseau, pare-feu |
+| ORA-01017 | Identifiants refusés | `secrets.json` |
+| ORA-28000 / 28001 | Compte verrouillé / mot de passe expiré | DBA puis `secrets.json` |
+| ORA-00942 | Table inaccessible | Droits / schéma |
+
 ## Exécution locale
 
 Pré-requis : SDK .NET 10 (installé dans `%USERPROFILE%\.dotnet` sur ce poste).

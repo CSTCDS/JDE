@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.DataProtection;
+using Oracle.ManagedDataAccess.Client;
 
 namespace Utils.Colas.Infrastructure;
 
@@ -50,9 +51,24 @@ public sealed class ConnectionStore
             }
             if (!c.HasCredentials)
                 logger.LogWarning("Connexion Oracle {Connection} sans UserId/Password (renseigner secrets.json).", c.Name);
+            logger.LogInformation("Connexion Oracle {Connection} : Data Source = {DataSource}", c.Name, c.DataSource);
             _connections[c.Name] = c;
         }
         logger.LogInformation("{Count} connexion(s) Oracle chargée(s) : {Names}", _connections.Count, string.Join(", ", _connections.Keys));
+        ApplyTnsAdmin(logger);
+    }
+
+    // TNS_ADMIN est global au processus pour ODP.NET : appliqué une seule fois, au démarrage.
+    private void ApplyTnsAdmin(ILogger logger)
+    {
+        var dirs = _connections.Values.Select(c => c.TnsAdmin).Where(d => !string.IsNullOrWhiteSpace(d))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (dirs.Count == 0) return;
+        if (dirs.Count > 1)
+            logger.LogWarning("TnsAdmin différents selon les connexions ({Dirs}) : seul {Used} est utilisé.", string.Join(", ", dirs), dirs[0]);
+        if (!File.Exists(Path.Combine(dirs[0], "tnsnames.ora")))
+            logger.LogWarning("TnsAdmin {Dir} : tnsnames.ora introuvable, les alias TNS ne seront pas résolus (ORA-12154).", dirs[0]);
+        OracleConfiguration.TnsAdmin = dirs[0];
     }
 
     public IReadOnlyDictionary<string, OracleConnectionConfig> All => _connections;
@@ -70,8 +86,6 @@ public sealed class ConnectionStore
 
     public static string ConnectionString(OracleConnectionConfig c, bool useSystemDataSource = false)
     {
-        if (!string.IsNullOrWhiteSpace(c.TnsAdmin))
-            System.Environment.SetEnvironmentVariable("TNS_ADMIN", c.TnsAdmin);
         var ds = useSystemDataSource && !string.IsNullOrWhiteSpace(c.SysDataSource) ? c.SysDataSource : c.DataSource;
         return $"User Id={c.UserId};Password={c.Password};Data Source={ds};Connection Timeout=30";
     }

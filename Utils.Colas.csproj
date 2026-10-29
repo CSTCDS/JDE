@@ -16,6 +16,8 @@
     <!-- secrets.json n'est jamais publié : il est géré sur le serveur (DPAPI) -->
     <Content Update="secrets.json" CopyToPublishDirectory="Never" CopyToOutputDirectory="Never" />
     <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+    <!-- Surcharge propre au serveur : jamais livrée (seul le modèle .template l'est) -->
+    <Content Update="appsettings.Production.json" CopyToPublishDirectory="Never" CopyToOutputDirectory="Never" />
     <None Update="Tools\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 

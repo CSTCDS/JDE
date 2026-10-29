@@ -209,10 +209,17 @@ try {
     if ($sha -ne $ExpectedSha256) { throw "Empreinte SHA-256 incorrecte (copie corrompue ?) : $sha au lieu de $ExpectedSha256" }
     Write-Host '  Empreinte SHA-256 : OK'
 
-    $aspnet = Get-ChildItem "$env:ProgramFiles\dotnet\shared\Microsoft.AspNetCore.App" -Directory -Filter '10.*' -ErrorAction SilentlyContinue
+    # ProgramW6432 : chemin 64 bits même si le script tourne dans un PowerShell 32 bits.
+    $programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+    $aspnet = Get-ChildItem "$programFiles\dotnet\shared\Microsoft.AspNetCore.App" -Directory -Filter '10.*' -ErrorAction SilentlyContinue
     if (-not $aspnet) { throw 'Runtime ASP.NET Core 10 absent : installer le Hosting Bundle .NET 10 (puis iisreset) et relancer.' }
-    if (-not (Test-Path "$env:windir\System32\inetsrv\aspnetcorev2.dll")) { throw 'Module IIS AspNetCoreModuleV2 absent : installer le Hosting Bundle .NET 10.' }
     Write-Host "  ASP.NET Core : $($aspnet.Name -join ', ')"
+    # Module déclaré dans IIS (applicationHost.config) ; son emplacement dépend de la version du Hosting Bundle.
+    $ancm = Get-WebGlobalModule -Name 'AspNetCoreModuleV2' -ErrorAction SilentlyContinue
+    if (-not $ancm) { throw 'Module IIS AspNetCoreModuleV2 non déclaré dans IIS : installer le Hosting Bundle .NET 10.' }
+    $ancmImage = [Environment]::ExpandEnvironmentVariables($ancm.Image)
+    if (Test-Path $ancmImage) { Write-Host "  Module IIS : $ancmImage" }
+    else { Write-Warning "AspNetCoreModuleV2 déclaré dans IIS mais fichier non vu depuis ce PowerShell : $ancmImage" }
 
     if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
     [IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $staging)

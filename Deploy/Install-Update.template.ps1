@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Installe la livraison __UPD_ID__ de Utils.Colas (commit __COMMIT__) sur le serveur IIS.

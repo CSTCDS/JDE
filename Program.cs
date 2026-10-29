@@ -89,7 +89,10 @@ app.MapGet("/api/version", () =>
     var asm = Assembly.GetExecutingAssembly();
     var version = (asm.GetName().Version ?? new Version(1, 0, 0)).ToString(3);
     var built = File.GetLastWriteTime(asm.Location);
-    return Results.Ok(new { version, built = built.ToString("yyyy-MM-dd HH:mm:ss") });
+    // Identifiant de livraison (UPDyyyyMMdd-HHmm) injecté par build-update.ps1 ; sinon « local ».
+    var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
+    var release = info.StartsWith("UPD", StringComparison.Ordinal) ? info.Split('+')[0] : "local";
+    return Results.Ok(new { version, release, built = built.ToString("yyyy-MM-dd HH:mm:ss") });
 });
 
 app.MapGet("/api/windows-user", (HttpContext ctx) =>

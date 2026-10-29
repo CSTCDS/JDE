@@ -16,6 +16,7 @@ Fusion de **Lire .h** (ex-`Utils.htm` d'appli-jade03) et **JDE Compare** (ex-NER
 | `wwwroot/lireh/`, `wwwroot/jdecompare/` | Pages des utilitaires |
 | `Tools/ObjectBrowser/` | Binaires ObjectBrowser (**non versionnés**, à copier depuis NERcompare) |
 | `tests/Utils.Colas.Tests/` | Tests xUnit (auth, cache, en-têtes, endpoints, logique de comparaison) |
+| `build-update.ps1`, `Deploy/Install-Update.template.ps1` | Construction et installation des livraisons UPD (voir plus bas) |
 
 ### Ajouter un utilitaire
 
@@ -48,19 +49,68 @@ powershell -ExecutionPolicy Bypass -File .\run-local.ps1 -Test    # tests
 
 Sans `secrets.json`, l'application démarre (avertissement) ; seules les requêtes Oracle échouent.
 
-## Déploiement IIS
+## Livraison sur le serveur IIS (UPD)
+
+Le serveur n'est pas accessible directement : les mises à jour sont livrées par **copier-coller** de deux fichiers.
+Le site IIS de production pointe sur `C:\sites\JDE` ; son nom et son pool sont détectés automatiquement d'après ce chemin.
+
+### 1. Construire la livraison (poste de développement)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\deploy-iis.ps1 [-CertThumbprint <thumbprint>]
+git commit ...                                                    # la livraison doit correspondre à un commit
+powershell -ExecutionPolicy Bypass -File .\build-update.ps1      # tests + publication
 ```
 
-Le script publie, sauvegarde le site (`<site>.bak-<horodatage>`), copie en préservant `secrets.json`, `keys/`, `logs/`
-et les binaires ObjectBrowser, configure l'auth Windows (anonyme désactivé) puis vérifie `/health`.
+Résultat dans `livraisons\` (non versionné) :
 
-**Rollback** : arrêter le pool, restaurer le dossier `.bak-<horodatage>`, redémarrer le pool.
+| Fichier | Contenu |
+|---|---|
+| `UPDyyyyMMdd-HHmm.zip` | publication complète (`site\`) + `manifest.json` (identifiant, commit, auteur) |
+| `Install-UPDyyyyMMdd-HHmm.ps1` | script d'installation, avec l'empreinte SHA-256 du zip intégrée |
 
-**Checklist après déploiement** : `/health` = 200 ; menu affiché avec l'utilisateur Windows ; Lire .h lit un objet ;
-JDE Compare charge les statuts ; un appel anonyme renvoie 401 ; une modification de page est visible sans Ctrl+F5.
+L'identifiant UPD est injecté dans l'assembly : il apparaît dans `/api/version` (`release`) et en pied de page de JDE Compare.
+
+### 2. Installer (serveur)
+
+Copier les deux fichiers dans un même dossier, puis dans une console **administrateur** :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Install-UPD20261029-1706.ps1
+```
+
+| Étape | Détail |
+|---|---|
+| 1. Contrôles | SHA-256 du zip, Hosting Bundle .NET 10, site IIS sur `C:\sites\JDE`, contenu du zip. **Rien n'est arrêté tant que ces contrôles ne sont pas passés.** |
+| 2. Arrêt | site + pool (si le pool est partagé : `app_offline.htm` à la place de l'arrêt du pool) |
+| 3. Sauvegarde | `C:\sites\JDE.bak-<horodatage>` ; les 5 plus récentes sont conservées (`-KeepBackups`) |
+| 4. Publication | copie **miroir** (les fichiers absents de la livraison sont supprimés) ; conservés : `secrets.json`, `appsettings.Production.json`, `keys\`, `logs\`, binaires ObjectBrowser (remplacés seulement s'ils sont livrés) ; droits NTFS du pool ; auth Windows imposée, anonyme désactivé |
+| 5. Redémarrage | pool + site |
+| 6. Vérification | `GET /health` ; si l'application répond en erreur : **retour arrière automatique**. Si le résultat est non concluant (certificat, 401 IIS…), l'opérateur confirme manuellement. |
+
+Options : `-SitePath` (défaut `C:\sites\JDE`), `-HealthUrl https://<hôte>/health`, `-KeepBackups 5`.
+Journal : `C:\sites\JDE\logs\deploy\` (transcription, robocopy, `history.log` = historique des livraisons).
+
+**Retour arrière manuel** (avec n'importe quel script `Install-UPD*.ps1`) :
+
+```powershell
+.\Install-UPD20261029-1706.ps1 -Rollback                                      # dernière sauvegarde
+.\Install-UPD20261029-1706.ps1 -Rollback -BackupPath C:\sites\JDE.bak-20261029-170612
+```
+
+**Première installation** : le site IIS doit exister (pool *No Managed Code*, liaison HTTPS) et le Hosting Bundle .NET 10
+être installé. `secrets.json` est créé depuis le modèle : renseigner les identifiants puis les chiffrer avec
+`Tools\encrypt-secrets.ps1 -Machine`.
+
+**Checklist après livraison** : `/health` = 200 ; menu affiché avec l'utilisateur Windows ; numéro UPD visible en pied de page
+de JDE Compare ; Lire .h lit un objet ; JDE Compare charge les statuts ; aucun Ctrl+F5 nécessaire.
+
+### Installation directe (serveur accessible avec le SDK)
+
+`deploy-iis.ps1` publie et crée/configure le site IIS en une fois :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy-iis.ps1 -SitePath C:\sites\JDE [-CertThumbprint <thumbprint>]
+```
 
 ## Cache
 

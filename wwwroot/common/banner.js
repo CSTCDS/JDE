@@ -65,7 +65,7 @@
     var footer = document.getElementById('version');
     if (footer) {
       getJson('api/version').then(function (b) {
-        footer.textContent = 'Utils.Colas — Version ' + b.version + ' - Mise à jour : ' + b.built;
+        footer.textContent = 'Utils.Colas — Version ' + b.version + ' (' + b.release + ') - Mise à jour : ' + b.built;
       }).catch(function () {});
     }
 

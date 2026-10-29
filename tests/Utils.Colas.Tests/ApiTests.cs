@@ -104,6 +104,15 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
         Assert.Equal("testeur", b.GetProperty("user").GetString());
     }
 
+    [Fact]
+    public async Task Version_ExposesReleaseId()
+    {
+        // Hors livraison build-update.ps1, aucun identifiant UPD n'est injecté.
+        var b = await Client().GetFromJsonAsync<JsonElement>("/api/version");
+        Assert.Equal("local", b.GetProperty("release").GetString());
+        Assert.False(string.IsNullOrEmpty(b.GetProperty("version").GetString()));
+    }
+
     // --- Cache et en-têtes de sécurité ---
 
     [Theory]

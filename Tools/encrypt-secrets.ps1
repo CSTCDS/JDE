@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Chiffre (DPAPI) les UserId / Password de secrets.json au format ENC:<base64>.
 .DESCRIPTION

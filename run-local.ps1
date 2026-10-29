@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Lance Utils.Colas en local (HTTPS, Windows Authentication via Negotiate).
 .EXAMPLE

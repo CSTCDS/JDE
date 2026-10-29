@@ -10,11 +10,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="tests\**;publish\**" />
-    <Content Remove="tests\**;publish\**" />
-    <None Remove="tests\**;publish\**" />
+    <Compile Remove="tests\**;publish\**;livraisons\**;Deploy\**" />
+    <Content Remove="tests\**;publish\**;livraisons\**;Deploy\**" />
+    <None Remove="tests\**;publish\**;livraisons\**;Deploy\**" />
     <!-- secrets.json n'est jamais publié : il est géré sur le serveur (DPAPI) -->
     <Content Update="secrets.json" CopyToPublishDirectory="Never" CopyToOutputDirectory="Never" />
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
     <None Update="Tools\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 

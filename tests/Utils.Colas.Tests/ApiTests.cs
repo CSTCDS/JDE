@@ -131,6 +131,18 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
     }
 
     [Theory]
+    [InlineData("/lireh/")]
+    [InlineData("/jdecompare/")]
+    public async Task UtilityPages_IncludeCommonBanner(string url)
+    {
+        var html = await Client().GetStringAsync(url);
+        Assert.Contains("id=\"bandeau-placeholder\"", html);
+        Assert.Contains("src=\"../common/banner.js\"", html);
+        var app = html.IndexOf("src=\"js/app.js\"", StringComparison.Ordinal);
+        if (app >= 0) Assert.True(html.IndexOf("../common/banner.js", StringComparison.Ordinal) < app, "banner.js doit précéder app.js");
+    }
+
+    [Theory]
     [InlineData("/common/banner.js")]
     [InlineData("/jdecompare/js/app.js")]
     [InlineData("/jdecompare/css/site.css")]

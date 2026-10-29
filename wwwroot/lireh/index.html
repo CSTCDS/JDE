@@ -24,6 +24,16 @@
     #status.err { display: block; background: #fdecea; border: 1px solid #f3c0bb; color: #a01b12; }
     #result { display: none; }
     pre { margin: 10px 0 0; padding: 12px; background: #1e1e1e; color: #d8d8d8; border-radius: 4px; font: 12.5px/1.45 Consolas, 'Courier New', monospace; overflow: auto; max-height: 65vh; }
+    #treeBox { margin-top: 10px; font-size: 13px; }
+    #treeBox > summary { cursor: pointer; font-weight: bold; color: #003366; }
+    #tree { margin-top: 6px; max-height: 40vh; overflow: auto; border: 1px solid #e3e7ea; border-radius: 4px; padding: 6px 10px; background: #fafbfc; }
+    #tree details { margin-left: 14px; }
+    #tree summary { cursor: pointer; }
+    #tree ul { list-style: none; margin: 2px 0 2px 14px; padding: 0; }
+    #tree a { color: #003366; text-decoration: none; }
+    #tree a:hover { text-decoration: underline; }
+    #tree a.sel { font-weight: bold; background: #fff3c4; }
+    #tree small { color: #777; margin-left: 6px; }
   </style>
 </head>
 <body data-utility="lireh">
@@ -51,6 +61,7 @@
 
     <div class="card" id="result">
       <div id="meta"></div>
+      <details id="treeBox"><summary id="treeTitle">Fichiers de l'archive</summary><div id="tree"></div></details>
       <pre id="code"></pre>
     </div>
   </main>
@@ -106,49 +117,130 @@
         return v;
       }
 
-      function url(name, mode) {
-        return API + 'header?env=' + encodeURIComponent(env.value) + '&objet=' + encodeURIComponent(name) + '&mode=' + mode;
+      function url(name, mode, path) {
+        return API + 'header?env=' + encodeURIComponent(env.value) + '&objet=' + encodeURIComponent(name) + '&mode=' + mode +
+          (path ? '&path=' + encodeURIComponent(path) : '');
       }
 
       function opts() { return { cache: 'no-store' }; }
 
       async function errorText(res) {
         var b = await res.json().catch(function () { return null; });
-        return (b && (b.detail || b.error)) || ('HTTP ' + res.status);
+        return { text: (b && (b.detail || b.error)) || ('HTTP ' + res.status), files: b && b.files };
       }
 
-      async function read() {
+      // Fichier affiché (pour que « Télécharger le .h » reprenne le fichier choisi dans l'arborescence).
+      var shown = null;
+      function shownPath(name) { return shown && shown.env === env.value && shown.name === name ? shown.path : null; }
+
+      var RULES = {
+        'include64': 'include64 : ',
+        'source': "Pas de include64/<objet>.h — fichier source : ",
+        'specs.zip': 'Pas de fichier .h / .c — spec trouvée dans specs.zip : ',
+        'choix': 'Fichier choisi : '
+      };
+
+      function formatSize(n) { return n < 1024 ? n + ' o' : n < 1048576 ? (n / 1024).toFixed(1) + ' Ko' : (n / 1048576).toFixed(1) + ' Mo'; }
+
+      // Arborescence des fichiers du zip (les zip imbriqués, ex. specs.zip, apparaissent comme des dossiers).
+      function renderTree(files, selected, name) {
+        var root = { dirs: {}, files: [] };
+        files.forEach(function (f) {
+          var parts = f.path.split('/'), node = root;
+          for (var i = 0; i < parts.length - 1; i++) {
+            node = node.dirs[parts[i]] || (node.dirs[parts[i]] = { dirs: {}, files: [] });
+          }
+          node.files.push({ name: parts[parts.length - 1], path: f.path, size: f.size });
+        });
+        function build(node, container, prefix, depth) {
+          Object.keys(node.dirs).sort().forEach(function (d) {
+            var full = prefix + d + '/';
+            var det = document.createElement('details');
+            det.open = depth < 1 || (selected && selected.indexOf(full) === 0);
+            var sum = document.createElement('summary');
+            sum.textContent = (/\.zip$/i.test(d) ? '🗜 ' : '📁 ') + d;
+            det.appendChild(sum);
+            build(node.dirs[d], det, full, depth + 1);
+            container.appendChild(det);
+          });
+          if (node.files.length) {
+            var ul = document.createElement('ul');
+            node.files.sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (f) {
+              var li = document.createElement('li'), a = document.createElement('a'), s = document.createElement('small');
+              a.href = '#'; a.textContent = f.name; a.title = f.path;
+              if (f.path === selected) a.className = 'sel';
+              a.addEventListener('click', function (e) { e.preventDefault(); obj.value = name; read(f.path); });
+              s.textContent = formatSize(f.size);
+              li.appendChild(a); li.appendChild(s); ul.appendChild(li);
+            });
+            container.appendChild(ul);
+          }
+        }
+        var tree = $('tree');
+        tree.innerHTML = '';
+        build(root, tree, '', 0);
+        $('treeTitle').textContent = "Fichiers de l'archive " + name + '.zip (' + files.length + ')';
+      }
+
+      async function read(path) {
         var name = objectName(); if (!name) return;
-        busy(true); status('info', 'Lecture de ' + name + '…'); $('result').style.display = 'none';
+        busy(true); status('info', 'Lecture de ' + name + (path ? ' — ' + path : '') + '…');
         try {
-          var res = await fetch(url(name, 'read'), opts());
-          if (!res.ok) { status('err', await errorText(res)); return; }
+          var res = await fetch(url(name, 'read', path), opts());
+          if (!res.ok) {
+            var err = await errorText(res);
+            status('err', err.text);
+            if (err.files) { renderTree(err.files, null, name); $('code').style.display = 'none'; $('treeBox').open = true; $('result').style.display = 'block'; }
+            else $('result').style.display = 'none';
+            return;
+          }
           var b = await res.json();
-          $('meta').textContent = b.objectName + ' — ' + b.env + ' (' + b.schema + '.F98780R) — ' + b.length + ' caractères';
-          $('code').textContent = b.header;
-          $('result').style.display = 'block';
           remember(b.objectName);
-          status('ok', 'include64/' + b.objectName + '.h chargé.');
+          shown = { env: env.value, name: b.objectName, path: b.path };
+          renderTree(b.files || [], b.path, b.objectName);
+          $('result').style.display = 'block';
+          if (!b.path) {
+            $('meta').textContent = b.objectName + ' — ' + b.env + ' (' + b.schema + '.F98780R) — ' + b.files.length + ' fichier(s)';
+            $('code').style.display = 'none';
+            $('treeBox').open = true;
+            status('info', b.message);
+            return;
+          }
+          $('treeBox').open = b.rule === 'choix';
+          $('code').style.display = '';
+          $('code').textContent = b.header;
+          $('meta').textContent = b.path + ' — ' + b.env + ' (' + b.schema + '.F98780R) — ' +
+            (b.binary ? 'fichier binaire de ' + formatSize(b.size) + ' (aperçu hexadécimal)' : b.length + ' caractères');
+          status('ok', (RULES[b.rule] || '') + b.path);
         } catch (e) { status('err', e.message); } finally { busy(false); }
       }
 
       async function download(mode, ext) {
         var name = objectName(); if (!name) return;
+        var path = mode === 'download' ? shownPath(name) : null;
         busy(true); status('info', 'Préparation de ' + name + ext + '…');
         try {
-          var res = await fetch(url(name, mode), opts());
-          if (!res.ok) { status('err', await errorText(res)); return; }
+          var res = await fetch(url(name, mode, path), opts());
+          if (!res.ok) {
+            var err = await errorText(res);
+            status('err', err.text);
+            if (err.files) { renderTree(err.files, null, name); $('code').style.display = 'none'; $('treeBox').open = true; $('result').style.display = 'block'; }
+            return;
+          }
+          var cd = res.headers.get('content-disposition') || '';
+          var m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)"?/i.exec(cd);
+          var fileName = m ? decodeURIComponent(m[1]) : name + ext;
           var link = document.createElement('a');
           link.href = URL.createObjectURL(await res.blob());
-          link.download = name + ext;
+          link.download = fileName;
           document.body.appendChild(link); link.click(); link.remove();
           setTimeout(function () { URL.revokeObjectURL(link.href); }, 1500);
           remember(name);
-          status('ok', 'Téléchargement de ' + name + ext + ' lancé.');
+          status('ok', 'Téléchargement de ' + fileName + ' lancé.');
         } catch (e) { status('err', e.message); } finally { busy(false); }
       }
 
-      $('btnRead').addEventListener('click', read);
+      $('btnRead').addEventListener('click', function () { read(); });
       $('btnDl').addEventListener('click', function () { download('download', '.h'); });
       $('btnZip').addEventListener('click', function () { download('zip', '.zip'); });
       obj.addEventListener('keydown', function (e) { if (e.key === 'Enter') read(); });

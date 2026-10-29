@@ -486,6 +486,11 @@
       });
     });
 
+    // Events diff d'un fichier du package F98780R
+    tbody.querySelectorAll('.btn-pkg').forEach(btn => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); runPackageDiff(btn); });
+    });
+
     applyFilters();
   }
 
@@ -536,7 +541,8 @@
 
   function appendResultRow(tbody, item, idx, result, projectGroup) {
     const tr = document.createElement('tr');
-    tr.dataset.filter = `${item.objectName} ${item.objectType} ${item.resultLabel} ${item.differences}`.toLowerCase();
+    const pkgPaths = item.package && item.package.files ? item.package.files.map(f => f.path).join(' ') : '';
+    tr.dataset.filter = `${item.objectName} ${item.objectType} ${item.resultLabel} ${item.differences} ${pkgPaths}`.toLowerCase();
     tr.dataset.resultCode = item.result;
     if (projectGroup) tr.dataset.projectGroup = projectGroup;
 
@@ -571,15 +577,85 @@
       Source (${escHtml(result.source)}) : ${item.source.recordCount} enregistrement(s), ${formatSize(item.source.blobSize)}<br>
       Cible (${escHtml(result.target)}) : ${item.target.recordCount} enregistrement(s), ${formatSize(item.target.blobSize)}<br>
       ${item.differences ? 'Résumé : ' + escHtml(item.differences) : 'Aucune différence détectée.'}
+      ${renderPackage(item, idx, result)}
       <div id="ob-diff-${idx}" class="ob-diff-container"></div>
     </td>`;
     tbody.appendChild(detailTr);
   }
 
+  // --- Package F98780R (même extraction que Lire .h) ---
+  const PKG_STATUS = { 'modifie': 'Modifié', 'source-seule': 'Source seule', 'cible-seule': 'Cible seule' };
+
+  function renderPackage(item, idx, result) {
+    const pkg = item.package;
+    if (!pkg) return '';
+    let html = `<div class="pkg-block"><strong>Package F98780R :</strong> ${escHtml(pkg.label)}`;
+    if (pkg.files && pkg.files.length) {
+      html += `<table class="pkg-table"><thead><tr><th>Fichier</th><th>Écart</th><th>${escHtml(result.source)}</th><th>${escHtml(result.target)}</th><th></th></tr></thead><tbody>`;
+      pkg.files.forEach((f, i) => {
+        const cls = f.status === 'modifie' ? 'result-different' : 'result-missing';
+        html += `<tr><td><code>${escHtml(f.path)}</code></td><td class="${cls}">${escHtml(PKG_STATUS[f.status] || f.status)}</td>
+          <td>${f.sourceSize ? formatSize(f.sourceSize) : '-'}</td><td>${f.targetSize ? formatSize(f.targetSize) : '-'}</td>
+          <td><button class="btn btn-xs btn-pkg" data-obj="${escHtml(item.objectName)}" data-src="${escHtml(result.source)}" data-tgt="${escHtml(result.target)}" data-path="${escHtml(f.path)}" data-target="pkg-diff-${idx}-${i}">Voir</button></td></tr>
+          <tr class="pkg-diff-row"><td colspan="5"><div id="pkg-diff-${idx}-${i}"></div></td></tr>`;
+      });
+      html += '</tbody></table>';
+    }
+    return html + '</div>';
+  }
+
+  async function runPackageDiff(btn) {
+    const box = document.getElementById(btn.dataset.target);
+    if (box.dataset.loaded) { box.innerHTML = ''; delete box.dataset.loaded; btn.textContent = 'Voir'; return; }
+    btn.disabled = true;
+    box.innerHTML = '<span class="spinner"></span> Lecture des packages...';
+    try {
+      const resp = await fetch(`${API_BASE}/package-diff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-JDE-Connection': getConnection() },
+        body: JSON.stringify({ object: btn.dataset.obj, source: btn.dataset.src, target: btn.dataset.tgt, path: btn.dataset.path })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || data.error || resp.statusText);
+      let html;
+      if (data.binary) {
+        html = data.identical ? '<span class="result-identical">✓ Contenu identique</span>'
+          : `Fichier binaire : ${formatSize(data.srcSize)} (source) / ${formatSize(data.tgtSize)} (cible), contenu différent.`;
+      } else {
+        html = `${escHtml(btn.dataset.src)} : ${data.srcLineCount} lignes — ${escHtml(btn.dataset.tgt)} : ${data.tgtLineCount} lignes<br>` + renderDiff(data.diff, 'Contenu identique');
+      }
+      box.innerHTML = html;
+      box.dataset.loaded = '1';
+      btn.textContent = 'Masquer';
+    } catch (err) {
+      box.innerHTML = `<span style="color:red;">Erreur: ${escHtml(err.message)}</span>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function renderDiff(diff, identicalLabel) {
+    if (!diff || diff.length === 0) return `<span class="result-identical">✓ ${escHtml(identicalLabel)}</span>`;
+    let html = `<div class="ob-diff-summary">${diff.length} différence(s) détectée(s)</div><div class="ob-diff-lines">`;
+    diff.forEach(d => {
+      if (d.type === 'added') {
+        html += `<div class="diff-line diff-added"><span class="diff-ln">+${d.line}</span> ${escHtml(d.content)}</div>`;
+      } else if (d.type === 'removed') {
+        html += `<div class="diff-line diff-removed"><span class="diff-ln">-${d.line}</span> ${escHtml(d.content)}</div>`;
+      } else if (d.type === 'modified') {
+        html += `<div class="diff-line diff-removed"><span class="diff-ln">~${d.line}</span> ${escHtml(d.srcContent)}</div>`;
+        html += `<div class="diff-line diff-added"><span class="diff-ln">~${d.line}</span> ${escHtml(d.tgtContent)}</div>`;
+      } else if (d.type === 'truncated') {
+        html += `<div class="diff-line diff-truncated">${escHtml(d.content)}</div>`;
+      }
+    });
+    return html + '</div>';
+  }
+
   // --- Filtre résultats ---
   function applyFilters() {
     const query = document.getElementById('filterResults').value.toLowerCase();
-    const rows = document.querySelectorAll('#resultsBody tr:not(.detail-row):not(.project-group-header)');
+    const rows = document.querySelectorAll('#resultsBody > tr:not(.detail-row):not(.project-group-header)');
     rows.forEach(row => {
       const textMatch = !query || (row.dataset.filter && row.dataset.filter.includes(query));
       const badgeMatch = activeBadges.has(row.dataset.resultCode);
@@ -733,26 +809,7 @@
 
       // Afficher le diff
       let html = `<hr><strong>Comparaison NER ObjectBrowser</strong> — ${escHtml(source)} (${data.srcLineCount} lignes) vs ${escHtml(target)} (${data.tgtLineCount} lignes)<br>`;
-
-      if (data.diff.length === 0) {
-        html += '<span class="result-identical">✓ Event Rules identiques</span>';
-      } else {
-        html += `<div class="ob-diff-summary">${data.diff.length} différence(s) détectée(s)</div>`;
-        html += '<div class="ob-diff-lines">';
-        data.diff.forEach(d => {
-          if (d.type === 'added') {
-            html += `<div class="diff-line diff-added"><span class="diff-ln">+${d.line}</span> ${escHtml(d.content)}</div>`;
-          } else if (d.type === 'removed') {
-            html += `<div class="diff-line diff-removed"><span class="diff-ln">-${d.line}</span> ${escHtml(d.content)}</div>`;
-          } else if (d.type === 'modified') {
-            html += `<div class="diff-line diff-removed"><span class="diff-ln">~${d.line}</span> ${escHtml(d.srcContent)}</div>`;
-            html += `<div class="diff-line diff-added"><span class="diff-ln">~${d.line}</span> ${escHtml(d.tgtContent)}</div>`;
-          } else if (d.type === 'truncated') {
-            html += `<div class="diff-line diff-truncated">${escHtml(d.content)}</div>`;
-          }
-        });
-        html += '</div>';
-      }
+      html += renderDiff(data.diff, 'Event Rules identiques');
       diffContainer.innerHTML = html;
     } catch (err) {
       if (diffContainer) diffContainer.innerHTML = `<span style="color:red;">Erreur: ${escHtml(err.message)}</span>`;

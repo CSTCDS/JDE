@@ -17,6 +17,7 @@ public sealed class JdeCompareOptions
 
 public sealed record CompareRequest(string? Source, string? Target, string[]? Objects);
 public sealed record OBCompareRequest(string? Object, string? Source, string? Target);
+public sealed record PackageDiffRequest(string? Object, string? Source, string? Target, string? Path);
 
 // JDE Compare (ex NERcompare) : comparaison de specs d'objets JDE entre deux environnements.
 public static partial class JdeCompareEndpoints
@@ -82,6 +83,27 @@ public static partial class JdeCompareEndpoints
 
         static OracleParameter P(string name, object value, OracleDbType type = OracleDbType.Varchar2)
             => new(name, type, value, ParameterDirection.Input);
+
+        async Task<IReadOnlyList<PackageFile>?> LoadPackage(OracleConnection conn, string schema, string objectName, CancellationToken ct)
+        {
+            var blob = await JdePackage.ReadBlobAsync(conn, schema, objectName, opt.CommandTimeoutSeconds, ct);
+            return blob is null ? null : JdePackage.Open(blob);
+        }
+
+        // Une erreur de lecture du package n'invalide pas la comparaison des specs.
+        async Task<PackageComparison> ComparePackages(OracleConnection srcConn, string srcSchema, OracleConnection tgtConn, string tgtSchema, string objectName, CancellationToken ct)
+        {
+            try
+            {
+                return JdePackage.Compare(await LoadPackage(srcConn, srcSchema, objectName, ct), await LoadPackage(tgtConn, tgtSchema, objectName, ct));
+            }
+            catch (Exception ex) when (ex is OracleException or InvalidDataException or PackageLimitException)
+            {
+                var msg = ex is OracleException oex ? OracleErrors.Describe(oex, null) : ex.Message;
+                logger.LogWarning(ex, "Package F98780R de {Object} illisible", objectName);
+                return new("erreur", $"Package illisible : {msg}", 0, []);
+            }
+        }
 
         IResult? Reference(HttpContext ctx, ConnectionStore store, out OracleConnectionConfig cfg)
         {
@@ -232,6 +254,10 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
                     var tgtSpec = await specs.GetSpecInfo(tgtConn, tgtSchema, name, objectType);
                     var cmp = SpecReader.CompareSpecs(srcSpec, tgtSpec, srcInfo, tgtInfo, objectType);
 
+                    // Package F98780R (même extraction que Lire .h) : différences fichier par fichier.
+                    var pkg = await ComparePackages(srcConn, srcSchema, tgtConn, tgtSchema, name, ctx.RequestAborted);
+                    cmp = SpecReader.MergePackage(cmp, pkg);
+
                     codes.Add(cmp.Code);
                     results.Add(new
                     {
@@ -239,7 +265,8 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
                         result = cmp.Code, resultLabel = cmp.Label,
                         source = new { environment = srcSchema, user = srcInfo.User, date = srcInfo.Date, time = srcInfo.Time, recordCount = srcSpec.RecordCount, blobSize = srcSpec.BlobSize },
                         target = new { environment = tgtSchema, user = tgtInfo.User, date = tgtInfo.Date, time = tgtInfo.Time, recordCount = tgtSpec.RecordCount, blobSize = tgtSpec.BlobSize },
-                        differences = cmp.Summary
+                        differences = cmp.Summary,
+                        package = new { status = pkg.Status, label = pkg.Label, identical = pkg.Identical, files = pkg.Files }
                     });
                 }
                 catch (Exception objEx) when (objEx is not OperationCanceledException)
@@ -251,7 +278,8 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
                         result = "!", resultLabel = "Erreur",
                         source = new { environment = srcSchema, user = "", date = "", time = "", recordCount = 0, blobSize = 0L },
                         target = new { environment = tgtSchema, user = "", date = "", time = "", recordCount = 0, blobSize = 0L },
-                        differences = objEx.Message
+                        differences = objEx.Message,
+                        package = (object?)null
                     });
                 }
             }
@@ -265,6 +293,60 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
                 notApplicable = Count("-"), conforme = Count("✓"), errors = Count("!"),
                 data = results
             });
+        });
+
+        // Diff d'un fichier du package F98780R entre source et cible (détail à la demande).
+        group.MapPost("/package-diff", async (HttpContext ctx, ConnectionStore store, PackageDiffRequest? body) =>
+        {
+            if (body is null || string.IsNullOrWhiteSpace(body.Object) || string.IsNullOrWhiteSpace(body.Source) || string.IsNullOrWhiteSpace(body.Target) || string.IsNullOrWhiteSpace(body.Path))
+                return Results.BadRequest(new { error = "Paramètres object, source, target et path requis." });
+            var objName = body.Object.Trim();
+            if (!ObjectNameRegex().IsMatch(objName))
+                return Results.BadRequest(new { error = "Nom d'objet invalide." });
+            if (!environments.TryGetValue(body.Source, out var srcConnName) || !store.TryGet(srcConnName, out var srcCfg) ||
+                !environments.TryGetValue(body.Target, out var tgtConnName) || !store.TryGet(tgtConnName, out var tgtCfg))
+                return Results.BadRequest(new { error = "Environnement source ou cible inconnu." });
+            if (!srcCfg.HasCredentials || !tgtCfg.HasCredentials)
+                return Results.BadRequest(new { error = "UserId / Password manquants (secrets.json)." });
+            var srcSchema = environments.Keys.First(k => k.Equals(body.Source, StringComparison.OrdinalIgnoreCase));
+            var tgtSchema = environments.Keys.First(k => k.Equals(body.Target, StringComparison.OrdinalIgnoreCase));
+
+            try
+            {
+                IReadOnlyList<PackageFile>? src, tgt;
+                await using (var c = await OracleErrors.OpenAsync(srcCfg, ctx)) src = await LoadPackage(c, srcSchema, objName, ctx.RequestAborted);
+                await using (var c = await OracleErrors.OpenAsync(tgtCfg, ctx)) tgt = await LoadPackage(c, tgtSchema, objName, ctx.RequestAborted);
+                var s = src is null ? null : JdePackage.Find(src, body.Path);
+                var t = tgt is null ? null : JdePackage.Find(tgt, body.Path);
+                if (s is null && t is null)
+                    return Results.NotFound(new { error = $"{body.Path} absent des deux packages." });
+
+                var binary = (s is not null && !JdePackage.IsText(s.Content)) || (t is not null && !JdePackage.IsText(t.Content));
+                if (binary)
+                    return Results.Ok(new
+                    {
+                        path = body.Path, binary, identical = s?.Sha256 == t?.Sha256,
+                        srcSize = s?.Size ?? 0, tgtSize = t?.Size ?? 0, diff = Array.Empty<object>()
+                    });
+                var srcText = s is null ? "" : JdePackage.Decode(s.Content);
+                var tgtText = t is null ? "" : JdePackage.Decode(t.Content);
+                return Results.Ok(new
+                {
+                    path = body.Path, binary, identical = srcText == tgtText,
+                    srcSize = s?.Size ?? 0, tgtSize = t?.Size ?? 0,
+                    srcLineCount = s is null ? 0 : srcText.Split('\n').Length,
+                    tgtLineCount = t is null ? 0 : tgtText.Split('\n').Length,
+                    diff = LineDiff.Generate(srcText, tgtText)
+                });
+            }
+            catch (InvalidDataException)
+            {
+                return Results.Json(new { error = "Le BLOB lu n'est pas une archive ZIP valide." }, statusCode: 500);
+            }
+            catch (PackageLimitException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: 413);
+            }
         });
 
         // Comparaison Event Rules via ObjectBrowser.exe (export texte source / cible puis diff)

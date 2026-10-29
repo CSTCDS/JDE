@@ -62,6 +62,29 @@ Fusion de **Lire .h** (ex-`Utils.htm` d'appli-jade03) et **JDE Compare** (ex-NER
 | ORA-28000 / 28001 | Compte verrouillé / mot de passe expiré | DBA puis `secrets.json` |
 | ORA-00942 | Table inaccessible | Droits / schéma |
 
+## Paquets objets (F98780R)
+
+Extraction commune (`Infrastructure/JdePackage.cs`) du zip `XMOMRBLOB` de `<schéma>.F98780R`. Les zips imbriqués (ex. `specs.zip`) sont dépliés sous la forme `specs.zip/...`.
+Limites : blob 64 Mo, 5000 fichiers, 256 Mo décompressés.
+
+### Lire .h : fichier affiché
+
+Le premier fichier trouvé selon cet ordre est affiché :
+
+1. `include64/<objet>.h`
+2. un `.h`/`.c` d'un autre dossier (priorité au nom de l'objet, puis `.h`)
+3. un fichier de `specs.zip` dont le nom contient l'objet
+4. sinon, l'arborescence du zip s'ouvre et l'utilisateur choisit le fichier
+
+L'arborescence reste disponible pour afficher ou télécharger un autre fichier (`/api/lireh/header?...&path=<chemin>`).
+
+### JDE Compare : comparaison des paquets
+
+- `/compare` compare aussi les paquets source et cible fichier par fichier (SHA-256 du contenu ; les dates du zip sont ignorées).
+- Les fichiers modifiés, présents seulement en source ou présents seulement en cible sont listés dans le détail de l'objet.
+- Le bouton « Voir » affiche le diff d'un fichier (`POST /api/jdecompare/package-diff`).
+- Si les specs sont identiques mais que les paquets diffèrent, l'objet est classé « ≠ Différent ».
+
 ## Exécution locale
 
 Pré-requis : SDK .NET 10 (installé dans `%USERPROFILE%\.dotnet` sur ce poste).

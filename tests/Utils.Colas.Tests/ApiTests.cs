@@ -287,6 +287,18 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
         Assert.Contains("manquants", await res.Content.ReadAsStringAsync());
     }
 
+    [Theory]
+    [InlineData("F0101", "DV920", "PD920", "", "requis")]
+    [InlineData("F0101;--", "DV920", "PD920", "a.h", "invalide")]
+    [InlineData("F0101", "DV920", "ZZ", "a.h", "inconnu")]
+    [InlineData("F0101", "DV920", "PD920", "a.h", "manquants")]
+    public async Task JdeCompare_PackageDiff_ValidatesInput(string obj, string src, string tgt, string path, string expected)
+    {
+        var res = await Client().PostAsJsonAsync("/api/jdecompare/package-diff", new { @object = obj, source = src, target = tgt, path });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Contains(expected, await res.Content.ReadAsStringAsync());
+    }
+
     [Fact]
     public async Task JdeCompare_ObCompare_RejectsUnknownEnvironment()
     {

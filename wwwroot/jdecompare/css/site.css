@@ -383,6 +383,12 @@ body {
 .btn-ob:disabled { opacity: 0.5; cursor: wait; }
 
 .ob-diff-container { margin-top: 10px; }
+.pkg-block { margin-top: 8px; }
+.pkg-table { border-collapse: collapse; margin-top: 4px; font-size: 12px; width: 100%; }
+.pkg-table th, .pkg-table td { border: 1px solid #e1e4e8; padding: 3px 6px; text-align: left; vertical-align: top; }
+.pkg-table th { background: #f3f5f7; }
+.pkg-table tr.pkg-diff-row td { border: none; padding: 0 6px; }
+.pkg-table code { font-size: 11px; word-break: break-all; }
 .ob-diff-summary { font-weight: 600; margin: 6px 0; color: #e74c3c; }
 .ob-diff-lines { max-height: 400px; overflow-y: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 11px; border: 1px solid #ddd; border-radius: 4px; padding: 6px; background: #fafafa; }
 .diff-line { padding: 1px 4px; white-space: pre-wrap; word-break: break-all; }

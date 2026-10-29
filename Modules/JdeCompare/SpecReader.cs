@@ -1,5 +1,6 @@
 using System.Data;
 using Oracle.ManagedDataAccess.Client;
+using Utils.Colas.Infrastructure;
 
 namespace Utils.Colas.Modules.JdeCompare;
 
@@ -250,6 +251,16 @@ FROM {schema}.{table} WHERE TRIM({keyCol}) = TRIM(:obj)");
         if (src.BlobSize != tgt.BlobSize) diffs.Add($"Taille: {src.BlobSize} vs {tgt.BlobSize} octets");
         if (src.Hash != tgt.Hash) diffs.Add("Contenu différent");
         return new("≠", "Différent", string.Join(" | ", diffs));
+    }
+
+    // Résultat global = specs + package F98780R : un package différent rend l'objet « Différent » si les specs sont identiques.
+    public static CompareResult MergePackage(CompareResult specs, PackageComparison pkg)
+    {
+        if (pkg.Status == "absent") return specs;
+        var summary = string.IsNullOrWhiteSpace(specs.Summary) ? pkg.Label : $"{specs.Summary} | {pkg.Label}";
+        if (pkg.HasDifferences && specs.Code == "=")
+            return new("≠", "Différent", summary);
+        return specs with { Summary = summary };
     }
 
     // Dates julien JDE brutes (CYYDDD) puis heure HHMMSS

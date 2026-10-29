@@ -72,11 +72,14 @@ L'identifiant UPD est injecté dans l'assembly : il apparaît dans `/api/version
 
 ### 2. Installer (serveur)
 
-Copier les deux fichiers dans un même dossier, puis dans une console **administrateur** :
+Copier les deux fichiers dans un même dossier **local** du serveur, en dehors du site (ex. `C:\Livraisons\Utils.Colas\`), puis :
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Install-UPD20261029-1706.ps1
-```
+- **clic droit sur `Install-UPD….ps1` > « Exécuter avec PowerShell »** : le script redemande lui-même les droits
+  administrateur (fenêtre UAC) et la fenêtre reste ouverte à la fin pour lire le résultat ;
+- ou dans une console : `powershell -ExecutionPolicy Bypass -File .\Install-UPD20261029-1706.ps1`
+
+Si Windows bloque le script (fichier marqué « provenant d'un autre ordinateur ») : *Propriétés > Débloquer* sur le `.ps1`.
+Éviter un lecteur réseau mappé : il n'est pas visible depuis la session administrateur ouverte par l'UAC.
 
 | Étape | Détail |
 |---|---|
@@ -87,7 +90,8 @@ powershell -ExecutionPolicy Bypass -File .\Install-UPD20261029-1706.ps1
 | 5. Redémarrage | pool + site |
 | 6. Vérification | `GET /health` ; si l'application répond en erreur : **retour arrière automatique**. Si le résultat est non concluant (certificat, 401 IIS…), l'opérateur confirme manuellement. |
 
-Options : `-SitePath` (défaut `C:\sites\JDE`), `-HealthUrl https://<hôte>/health`, `-KeepBackups 5`.
+Options : `-SitePath` (défaut `C:\sites\JDE`), `-HealthUrl https://<hôte>/health`, `-KeepBackups 5`,
+`-NoPause` (pas d'attente de la touche Entrée, pour une exécution automatisée ; code de sortie 0 = OK, 1 = échec).
 Journal : `C:\sites\JDE\logs\deploy\` (transcription, robocopy, `history.log` = historique des livraisons).
 
 **Retour arrière manuel** (avec n'importe quel script `Install-UPD*.ps1`) :

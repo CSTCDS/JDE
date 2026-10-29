@@ -99,5 +99,5 @@ Write-Host ''
 Write-Host "Livraison prête ($sizeMb Mo, commit $commit) :" -ForegroundColor Green
 Write-Host "  $zipPath"
 Write-Host "  $installPath"
-Write-Host 'Sur le serveur : copier les 2 fichiers dans un même dossier, puis en administrateur :'
-Write-Host "  powershell -ExecutionPolicy Bypass -File .\Install-$id.ps1"
+Write-Host 'Sur le serveur : copier les 2 fichiers dans un même dossier local (ex. C:\Livraisons\Utils.Colas),'
+Write-Host "puis clic droit sur Install-$id.ps1 > « Exécuter avec PowerShell » (élévation UAC demandée)."

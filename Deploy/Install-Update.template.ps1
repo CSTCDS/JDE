@@ -1,11 +1,11 @@
-﻿#Requires -RunAsAdministrator
 #Requires -Version 5.1
 <#
 .SYNOPSIS
   Installe la livraison __UPD_ID__ de Utils.Colas (commit __COMMIT__) sur le serveur IIS.
 .DESCRIPTION
-  Copier __UPD_ID__.zip et ce script dans un même dossier du serveur, puis en administrateur :
-    powershell -ExecutionPolicy Bypass -File .\Install-__UPD_ID__.ps1
+  Copier __UPD_ID__.zip et ce script dans un même dossier local du serveur (ex. C:\Livraisons\Utils.Colas),
+  puis clic droit sur le script > « Exécuter avec PowerShell » (élévation UAC demandée automatiquement),
+  ou en console : powershell -ExecutionPolicy Bypass -File .\Install-__UPD_ID__.ps1
 
   1. Contrôles : empreinte SHA-256 du zip, Hosting Bundle .NET 10, site IIS pointant sur -SitePath
   2. Arrêt du site et du pool
@@ -28,8 +28,28 @@ param(
     [int]$KeepBackups = 5,
     [string]$HealthUrl = '',
     [switch]$Rollback,
-    [string]$BackupPath = ''
+    [string]$BackupPath = '',
+    [switch]$NoPause
 )
+
+# Lancement par clic droit « Exécuter avec PowerShell » : session non élevée -> relance en administrateur (UAC).
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
+    foreach ($key in $PSBoundParameters.Keys) {
+        $value = $PSBoundParameters[$key]
+        if ($value -is [switch]) { if ($value.IsPresent) { $argList += "-$key" } }
+        else { $argList += "-$key"; $argList += "`"$value`"" }
+    }
+    try {
+        Start-Process powershell.exe -Verb RunAs -ArgumentList $argList -WorkingDirectory $PSScriptRoot
+    }
+    catch {
+        Write-Host "Droits administrateur requis : élévation refusée ou impossible ($($_.Exception.Message))." -ForegroundColor Red
+        if (-not $NoPause) { [void](Read-Host 'Appuyer sur Entrée pour fermer') }
+    }
+    return
+}
 
 $ErrorActionPreference = 'Stop'
 $UpdId = '__UPD_ID__'
@@ -42,8 +62,6 @@ $SitePath = [IO.Path]::GetFullPath($SitePath).TrimEnd('\')
 $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $LogDir = Join-Path $SitePath 'logs\deploy'
 
-Import-Module WebAdministration
-Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 function Write-Step([string]$Text) { Write-Host "`n=== $Text" -ForegroundColor Cyan }
@@ -146,22 +164,28 @@ function Restore-Backup($Site, [string]$From) {
 
 function Add-History([string]$Result) {
     $line = '{0};{1};{2};{3}\{4};{5}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $UpdId, $Commit, $env:USERDOMAIN, $env:USERNAME, $Result
-    Add-Content (Join-Path $LogDir 'history.log') $line -Encoding UTF8
+    try { Add-Content (Join-Path $LogDir 'history.log') $line -Encoding UTF8 } catch { Write-Warning "history.log non mis à jour : $($_.Exception.Message)" }
 }
 
 function Get-Backups {
     Get-ChildItem (Split-Path $SitePath) -Directory -Filter "$(Split-Path $SitePath -Leaf).bak-*" | Sort-Object Name -Descending
 }
 
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-Start-Transcript -Path (Join-Path $LogDir "$UpdId-$Stamp-install.log") | Out-Null
 $staging = "$SitePath.staging-$UpdId"
 $backup = ''
 $stopped = $false
 $copyStarted = $false
+$failed = $false
+$transcript = $false
 $site = $null
 
 try {
+    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    Start-Transcript -Path (Join-Path $LogDir "$UpdId-$Stamp-install.log") | Out-Null
+    $transcript = $true
+    Import-Module WebAdministration
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+
     $site = Get-TargetSite
     Write-Host "Site IIS : $($site.name) | pool : $($site.applicationPool) | dossier : $SitePath"
 
@@ -173,6 +197,7 @@ try {
         Restore-Backup $site $BackupPath
         if (Confirm-Health $site) { Add-History "ROLLBACK OK ($BackupPath)"; Write-Host 'Retour arrière terminé.' -ForegroundColor Green }
         else { Add-History "ROLLBACK KO ($BackupPath)"; throw 'Le site ne répond pas correctement après retour arrière.' }
+        $global:LASTEXITCODE = 0   # robocopy laisse 1..7 (succès) : code de sortie du script = 0
         return
     }
 
@@ -274,9 +299,12 @@ catch {
         Add-History "KO - aucune modification ($($err.Exception.Message))"
     }
     elseif (-not $Rollback) { Add-History "KO - aucune modification ($($err.Exception.Message))" }
-    throw $err
+    $failed = $true
 }
 finally {
     if (Test-Path $staging) { Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue }
-    Stop-Transcript | Out-Null
+    if ($transcript) { Stop-Transcript | Out-Null }
+    # Garde la fenêtre ouverte (lancement par clic droit) pour lire le résultat.
+    if (-not $NoPause) { [void](Read-Host "`nAppuyer sur Entrée pour fermer") }
 }
+if ($failed) { exit 1 } else { exit 0 }

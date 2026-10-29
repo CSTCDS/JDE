@@ -13,15 +13,6 @@ public sealed class JdeCompareOptions
     public int MaxObjects { get; set; } = 500;
     public int CommandTimeoutSeconds { get; set; } = 60;
     public int ObjectBrowserTimeoutSeconds { get; set; } = 120;
-    // Liste ordonnée (1er = source par défaut, dernier = cible par défaut).
-    public List<JdeCompareEnvironment> Environments { get; set; } = [];
-}
-
-// Environnement JDE (chemin F9861 / schéma specs) -> nom de connexion Oracle
-public sealed class JdeCompareEnvironment
-{
-    public string Name { get; set; } = string.Empty;
-    public string Connection { get; set; } = string.Empty;
 }
 
 public sealed record CompareRequest(string? Source, string? Target, string[]? Objects);
@@ -42,8 +33,21 @@ public static partial class JdeCompareEndpoints
         var env = app.ServiceProvider.GetRequiredService<IWebHostEnvironment>();
         var opt = new JdeCompareOptions();
         configuration.GetSection("JdeCompare").Bind(opt);
+        var logger = app.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("JdeCompare");
+
+        // Environnements = connexions de OracleConnections (nom affiché / schéma specs = Schema), dans l'ordre Order.
+        var envList = new List<(string Name, string Connection)>();
         var environments = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var e in opt.Environments) environments[e.Name] = e.Connection;
+        foreach (var c in app.ServiceProvider.GetRequiredService<ConnectionStore>().Ordered)
+        {
+            var name = c.EnvironmentSchema;
+            if (!environments.TryAdd(name, c.Name))
+            {
+                logger.LogWarning("Connexion {Connection} ignorée par JDE Compare : schéma {Schema} déjà fourni par {Other}.", c.Name, name, environments[name]);
+                continue;
+            }
+            envList.Add((name, c.Name));
+        }
 
         // Fail fast : ces valeurs sont interpolées dans le SQL.
         foreach (var id in environments.Keys.Append(opt.ObjectLibrarianSchema))
@@ -52,7 +56,6 @@ public static partial class JdeCompareEndpoints
 
         var ol = opt.ObjectLibrarianSchema;
         var obExePath = Path.IsPathRooted(opt.ObjectBrowserPath) ? opt.ObjectBrowserPath : Path.Combine(env.ContentRootPath, opt.ObjectBrowserPath);
-        var logger = app.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("JdeCompare");
         var group = app.MapGroup("/api/jdecompare");
         group.AddEndpointFilter(async (ctx, next) =>
         {
@@ -93,9 +96,7 @@ public static partial class JdeCompareEndpoints
         }
 
         group.MapGet("/environments", (ConnectionStore store) =>
-            Results.Ok(opt.Environments
-                .Where(e => store.All.ContainsKey(e.Connection))
-                .Select(e => new { environment = e.Name, connection = e.Connection })));
+            Results.Ok(envList.Select(e => new { environment = e.Name, connection = e.Connection, available = store.All[e.Connection].HasCredentials })));
 
         // Autocomplétion objets F9860 (schéma Object Librarian)
         group.MapGet("/objects", async (HttpContext ctx, ConnectionStore store, string? q, int? limit) =>

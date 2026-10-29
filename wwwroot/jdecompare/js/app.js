@@ -28,9 +28,16 @@
       srcSelect.innerHTML = '';
       tgtSelect.innerHTML = '';
 
-      envs.forEach((e, i) => {
-        srcSelect.add(new Option(e.environment, e.environment, i === 0, i === 0));
-        tgtSelect.add(new Option(e.environment, e.environment, i === envs.length - 1, i === envs.length - 1));
+      const avail = envs.filter(e => e.available !== false);
+      const first = avail.length ? avail[0].environment : null;
+      const last = avail.length ? avail[avail.length - 1].environment : null;
+      envs.forEach(e => {
+        const label = e.environment + (e.available === false ? ' (identifiants manquants)' : '');
+        const s = new Option(label, e.environment, e.environment === first, e.environment === first);
+        const t = new Option(label, e.environment, e.environment === last, e.environment === last);
+        s.disabled = t.disabled = e.available === false;
+        srcSelect.add(s);
+        tgtSelect.add(t);
       });
     } catch (err) {
       console.error('Erreur chargement environnements:', err);

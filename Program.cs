@@ -105,7 +105,7 @@ app.MapGet("/api/windows-user", (HttpContext ctx) =>
 app.MapGet("/api/connections", (ConnectionStore store, IConfiguration cfg) => Results.Ok(new
 {
     defaultConnection = cfg["DefaultConnection"],
-    connections = store.All.Values.Select(c => new { name = c.Name, environment = c.Environment, bannerColor = c.BannerColor, available = c.HasCredentials })
+    connections = store.Ordered.Select(c => new { name = c.Name, environment = c.Environment, bannerColor = c.BannerColor, available = c.HasCredentials })
 }));
 
 app.MapLireH();

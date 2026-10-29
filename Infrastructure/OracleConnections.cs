@@ -21,7 +21,12 @@ public sealed class OracleConnectionConfig
     public string DefaultSchema { get; set; } = string.Empty;
     public string CtlSchema { get; set; } = string.Empty;
     public string BannerColor { get; set; } = string.Empty;
+    // Rang d'affichage dans les listes d'environnements (la configuration .NET trie les clés par ordre alphabétique).
+    public int Order { get; set; } = int.MaxValue;
     public bool UseEncryption { get; set; }
+
+    // Schéma JDE de l'environnement (F98780R pour Lire .h, specs pour JDE Compare).
+    public string EnvironmentSchema => string.IsNullOrWhiteSpace(Schema) ? Name : Schema.Trim();
 
     public bool HasCredentials => !string.IsNullOrWhiteSpace(UserId) && !string.IsNullOrWhiteSpace(Password);
 }
@@ -44,6 +49,11 @@ public sealed class ConnectionStore
             var c = new OracleConnectionConfig();
             section.Bind(c);
             c.Name = section.Key;
+            if (string.IsNullOrWhiteSpace(c.DataSource))
+            {
+                logger.LogWarning("Connexion Oracle {Connection} ignorée : DataSource absent (clé orpheline dans secrets.json / appsettings.Production.json ?).", c.Name);
+                continue;
+            }
             if (c.UseEncryption)
             {
                 c.UserId = Decrypt(c.UserId, protector, section.Key);
@@ -72,6 +82,10 @@ public sealed class ConnectionStore
     }
 
     public IReadOnlyDictionary<string, OracleConnectionConfig> All => _connections;
+
+    // Liste unique des environnements affichés par tous les utilitaires (ordre : Order puis nom).
+    public IReadOnlyList<OracleConnectionConfig> Ordered =>
+        _connections.Values.OrderBy(c => c.Order).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList();
 
     public bool TryGet(string? name, out OracleConnectionConfig config)
     {

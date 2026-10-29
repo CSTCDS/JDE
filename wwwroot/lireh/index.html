@@ -34,10 +34,7 @@
       <div class="row">
         <label class="field">Environnement
           <select id="env">
-            <option value="E1" selected>E1 — DV920</option>
-            <option value="E2">E2 — PY920</option>
-            <option value="E3">E3 — QA920</option>
-            <option value="E4">E4 — PD920</option>
+            <option value="" disabled selected>Chargement…</option>
           </select>
         </label>
         <label class="field">Nom de l'objet JDE
@@ -156,20 +153,19 @@
       $('btnZip').addEventListener('click', function () { download('zip', '.zip'); });
       obj.addEventListener('keydown', function (e) { if (e.key === 'Enter') read(); });
 
-      // Couleur du bandeau : BannerColor de la connexion (appsettings.json), sinon couleurs historiques.
-      var COLORS = { E1: '#003366', E2: '#c0392b', E3: '#27ae60', E4: '#003366' };
+      // Liste et couleurs issues de OracleConnections (appsettings.json) : aucune valeur codée en dur.
+      var COLORS = {};
       function applyColor() { window.UtilsColas.setBannerColor(COLORS[env.value] || '#003366'); }
       env.addEventListener('change', applyColor);
-      applyColor();
 
       fetch(API + 'environments', { cache: 'no-store' }).then(asJson).then(function (list) {
-        if (!Array.isArray(list) || list.length === 0) return;
         env.innerHTML = '';
+        if (!Array.isArray(list) || list.length === 0) { status('err', 'Aucune connexion Oracle configurée.'); return; }
         list.forEach(function (e) {
           if (e.bannerColor) COLORS[e.code] = window.UtilsColas.colorOf(e.bannerColor);
           var o = document.createElement('option');
           o.value = e.code;
-          o.textContent = e.code + ' — ' + e.schema + (e.available ? '' : ' (non configuré)');
+          o.textContent = (e.code === e.schema ? e.code : e.code + ' — ' + e.schema) + (e.available ? '' : ' (identifiants manquants)');
           o.disabled = !e.available;
           env.appendChild(o);
         });

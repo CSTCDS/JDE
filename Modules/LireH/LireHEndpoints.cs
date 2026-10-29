@@ -7,13 +7,8 @@ using Utils.Colas.Infrastructure;
 
 namespace Utils.Colas.Modules.LireH;
 
-public sealed class LireHEnvironment
-{
-    public string[] Connections { get; set; } = [];
-    public string Schema { get; set; } = string.Empty;
-}
-
 // Lire .h (ex Utils.htm / appli-jade03) : extrait include64/<objet>.h du BLOB F98780R.
+// Environnements = connexions de OracleConnections (aucune liste séparée).
 public static partial class LireHEndpoints
 {
     private const int ChunkSize = 2000;
@@ -25,30 +20,14 @@ public static partial class LireHEndpoints
     [GeneratedRegex("^[A-Za-z][A-Za-z0-9_$]{0,29}$")]
     private static partial Regex SchemaRegex();
 
-    public static Dictionary<string, LireHEnvironment> LoadEnvironments(IConfiguration configuration)
-    {
-        var envs = new Dictionary<string, LireHEnvironment>(StringComparer.OrdinalIgnoreCase);
-        foreach (var s in configuration.GetSection("LireH:Environments").GetChildren())
-        {
-            var e = new LireHEnvironment();
-            s.Bind(e);
-            envs[s.Key] = e;
-        }
-        return envs;
-    }
-
     public static IEndpointRouteBuilder MapLireH(this IEndpointRouteBuilder app)
     {
-        var environments = LoadEnvironments(app.ServiceProvider.GetRequiredService<IConfiguration>());
         var group = app.MapGroup("/api/lireh");
 
         group.MapGet("/environments", (ConnectionStore store) =>
-            Results.Ok(environments.Select(e =>
+            Results.Ok(store.Ordered.Select(c => new
             {
-                var conn = e.Value.Connections.FirstOrDefault(store.All.ContainsKey);
-                var schema = conn is not null && !string.IsNullOrWhiteSpace(store.All[conn].Schema) ? store.All[conn].Schema : e.Value.Schema;
-                var color = conn is not null ? store.All[conn].BannerColor : string.Empty;
-                return new { code = e.Key, schema, connection = conn, bannerColor = color, available = conn is not null };
+                code = c.Name, schema = c.EnvironmentSchema, connection = c.Name, bannerColor = c.BannerColor, available = c.HasCredentials
             })));
 
         // mode=read -> JSON { header } ; mode=download -> fichier .h ; mode=zip -> archive brute
@@ -59,17 +38,13 @@ public static partial class LireHEndpoints
             if (!ObjectNameRegex().IsMatch(name))
                 return Results.BadRequest(new { error = "Nom d'objet JDE invalide (1 à 10 caractères alphanumériques)." });
 
-            if (env is null || !environments.TryGetValue(env, out var envInfo))
-                return Results.BadRequest(new { error = $"Environnement inconnu ({string.Join(", ", environments.Keys)})." });
-
-            var connName = envInfo.Connections.FirstOrDefault(store.All.ContainsKey);
-            if (connName is null || !store.TryGet(connName, out var cfg))
-                return Results.BadRequest(new { error = $"Aucune connexion configurée pour {env}." });
+            if (env is null || !store.TryGet(env, out var cfg))
+                return Results.BadRequest(new { error = $"Environnement inconnu ({string.Join(", ", store.Ordered.Select(c => c.Name))})." });
+            var connName = cfg.Name;
             if (!cfg.HasCredentials)
                 return Results.BadRequest(new { error = $"UserId / Password manquants pour {connName} (secrets.json)." });
 
-            // Le champ "Schema" de la connexion prévaut sur le schéma par défaut de l'environnement.
-            var schema = string.IsNullOrWhiteSpace(cfg.Schema) ? envInfo.Schema : cfg.Schema.Trim();
+            var schema = cfg.EnvironmentSchema;
             if (!SchemaRegex().IsMatch(schema))
                 return Results.BadRequest(new { error = $"Schéma invalide : '{schema}'." });
             var sql = $"SELECT RAWTOHEX(DBMS_LOB.SUBSTR(XMOMRBLOB, {ChunkSize}, :pos)) FROM {schema}.F98780R WHERE TRIM(XMOMWOBJID) = :objid AND ROWNUM = 1";

@@ -51,7 +51,9 @@ public sealed class UtilsColasFactory : WebApplicationFactory<Program>
             ["OracleConnections:DV920:UserId"] = "user",
             ["OracleConnections:DV920:Password"] = SecretPassword,
             ["OracleConnections:PD920:UserId"] = "",
-            ["OracleConnections:PD920:Password"] = ""
+            ["OracleConnections:PD920:Password"] = "",
+            ["OracleConnections:ORPHAN:UserId"] = "user",
+            ["OracleConnections:ORPHAN:Password"] = SecretPassword
         }));
         builder.ConfigureTestServices(services =>
         {
@@ -195,19 +197,32 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
     // --- Lire .h ---
 
     [Fact]
-    public async Task LireH_Environments_AreE1ToE4()
+    public async Task LireH_Environments_ComeFromOracleConnections_InOrder()
     {
         var list = await Client().GetFromJsonAsync<JsonElement[]>("/api/lireh/environments");
-        Assert.Equal(["E1", "E2", "E3", "E4"], list!.Select(e => e.GetProperty("code").GetString()!).ToArray());
-        Assert.Equal("DV920", list![0].GetProperty("connection").GetString());
+        Assert.Equal(["DV920", "PYI920", "QA920", "PD920"], list!.Select(e => e.GetProperty("code").GetString()!).ToArray());
+        Assert.Equal("PY920", list![1].GetProperty("schema").GetString());
+        Assert.True(list![0].GetProperty("available").GetBoolean());
+        Assert.False(list![3].GetProperty("available").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Connection_WithoutDataSource_IsIgnoredEverywhere()
+    {
+        // Clé orpheline (ex. ancien secrets.json de lire.h avec "E1") : ne doit apparaître dans aucune liste.
+        var client = Client();
+        Assert.DoesNotContain("ORPHAN", await client.GetStringAsync("/api/lireh/environments"));
+        Assert.DoesNotContain("ORPHAN", await client.GetStringAsync("/api/jdecompare/environments"));
+        Assert.DoesNotContain("ORPHAN", await client.GetStringAsync("/api/connections"));
     }
 
     [Theory]
-    [InlineData("/api/lireh/header?env=E1&objet=", "invalide")]
-    [InlineData("/api/lireh/header?env=E1&objet=F58'--", "invalide")]
-    [InlineData("/api/lireh/header?env=E1&objet=TROPLONGNOM123", "invalide")]
+    [InlineData("/api/lireh/header?env=DV920&objet=", "invalide")]
+    [InlineData("/api/lireh/header?env=DV920&objet=F58'--", "invalide")]
+    [InlineData("/api/lireh/header?env=DV920&objet=TROPLONGNOM123", "invalide")]
     [InlineData("/api/lireh/header?env=E9&objet=F0101", "inconnu")]
-    [InlineData("/api/lireh/header?env=E4&objet=F0101", "manquants")]
+    [InlineData("/api/lireh/header?env=ORPHAN&objet=F0101", "inconnu")]
+    [InlineData("/api/lireh/header?env=PD920&objet=F0101", "manquants")]
     public async Task LireH_Header_ValidatesInput(string url, string expected)
     {
         var res = await Client().GetAsync(url);
@@ -222,6 +237,7 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
     {
         var list = await Client().GetFromJsonAsync<JsonElement[]>("/api/jdecompare/environments");
         Assert.Equal(["DV920", "PY920", "QA920", "PD920"], list!.Select(e => e.GetProperty("environment").GetString()!).ToArray());
+        Assert.Equal("PYI920", list![1].GetProperty("connection").GetString());
     }
 
     [Fact]

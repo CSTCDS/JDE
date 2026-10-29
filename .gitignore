@@ -1,0 +1,16 @@
+bin/
+obj/
+publish/
+logs/
+keys/
+TestResults/
+.vs/
+*.user
+
+# Secrets : seul secrets.template.json est versionné
+secrets.json
+appsettings.Local.json
+
+# Binaires tiers JDE (copiés manuellement sur le serveur, cf. README)
+Tools/ObjectBrowser/*.exe
+Tools/ObjectBrowser/*.dll

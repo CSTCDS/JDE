@@ -1,0 +1,16 @@
+[
+  {
+    "id": "lireh",
+    "title": "Lire .h",
+    "description": "Afficher ou télécharger le fichier include64/<objet>.h d'un objet JDE (BLOB F98780R).",
+    "url": "lireh/",
+    "icon": "📄"
+  },
+  {
+    "id": "jdecompare",
+    "title": "JDE Compare",
+    "description": "Comparer les specs d'objets JDE (par objet, projet ou statut) entre deux environnements, diff des Event Rules via ObjectBrowser.",
+    "url": "jdecompare/",
+    "icon": "⇄"
+  }
+]

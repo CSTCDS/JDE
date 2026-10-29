@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JDE Compare — Utils.Colas</title>
+  <link rel="stylesheet" href="../common/banner.css">
+  <link rel="stylesheet" href="css/site.css">
+</head>
+<body data-utility="jdecompare" data-connection-selector>
+  <div id="bandeau-placeholder"></div>
+
+  <div class="ner-container">
+    <!-- Formulaire de recherche -->
+    <div class="ner-toolbar" id="formToolbar">
+      <div class="toolbar-title" style="cursor:pointer;" onclick="toggleFormSection()">JDE Compare — Comparaison d'objets entre environnements <span id="formCollapseIcon">▾</span></div>
+      <button id="btnRecommencer" class="btn btn-secondary btn-sm" style="display:none;" onclick="recommencer()">⟳ Recommencer</button>
+    </div>
+
+    <div class="ner-form" id="formSection">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="envSource">Environnement source :</label>
+          <select id="envSource" class="form-control"></select>
+        </div>
+        <div class="form-group">
+          <label for="envTarget">Environnement cible :</label>
+          <select id="envTarget" class="form-control"></select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Mode de recherche :</label>
+          <div class="radio-group">
+            <label class="radio-label"><input type="radio" name="searchMode" value="object" checked> Par objet</label>
+            <label class="radio-label"><input type="radio" name="searchMode" value="project"> Par projet</label>
+            <label class="radio-label"><input type="radio" name="searchMode" value="status"> Par statut</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recherche par objet -->
+      <div id="searchObject" class="search-panel">
+        <div class="form-group">
+          <label for="objectInput">Objet (min. 3 caractères) :</label>
+          <div class="autocomplete-wrapper">
+            <input type="text" id="objectInput" class="form-control" maxlength="20" placeholder="Nom de l'objet (F9860.SIOBNM)">
+            <div id="objectSuggestions" class="suggestions-list"></div>
+          </div>
+          <div id="selectedObjects" class="selected-tags"></div>
+        </div>
+      </div>
+
+      <!-- Recherche par projet -->
+      <div id="searchProject" class="search-panel" style="display:none;">
+        <div class="form-group">
+          <label for="projectInput">Projet (min. 3 caractères) :</label>
+          <div class="autocomplete-wrapper">
+            <input type="text" id="projectInput" class="form-control" maxlength="20" placeholder="ID du projet (F98220)">
+            <div id="projectSuggestions" class="suggestions-list"></div>
+          </div>
+          <div id="projectInfo" class="info-box"></div>
+        </div>
+      </div>
+
+      <!-- Recherche par statut -->
+      <div id="searchStatus" class="search-panel" style="display:none;">
+        <div class="form-group">
+          <label for="statusSelect">Statut projet :</label>
+          <select id="statusSelect" class="form-control">
+            <option value="">-- Choisir un statut --</option>
+          </select>
+          <div id="statusProjects" class="info-box"></div>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button id="btnCompare" class="btn btn-primary" disabled>Comparer</button>
+        <button id="btnClear" class="btn btn-secondary">Effacer</button>
+        <span id="statusMessage" class="status-msg"></span>
+      </div>
+    </div>
+
+    <!-- Résultats -->
+    <div id="resultsSection" class="results-section" style="display:none;">
+      <div class="results-header">
+        <div class="results-summary">
+          <span id="summaryTotal"></span>
+          <span id="summaryIdentical" class="badge badge-ok badge-active" data-code="="></span>
+          <span id="summaryDifferent" class="badge badge-diff badge-active" data-code="≠"></span>
+          <span id="summaryMoreRecent" class="badge badge-recent badge-active" data-code="↑"></span>
+          <span id="summaryMissing" class="badge badge-warn badge-active" data-code="?"></span>
+          <span id="summaryNA" class="badge badge-na badge-active" data-code="-"></span>
+          <span id="summaryConforme" class="badge badge-conforme badge-active" data-code="✓"></span>
+          <span id="summaryError" class="badge badge-error badge-active" data-code="!"></span>
+        </div>
+        <div class="results-filter">
+          <input type="text" id="filterResults" class="form-control form-control-sm" placeholder="Filtrer les résultats...">
+        </div>
+      </div>
+
+      <table class="results-table" id="resultsTable">
+        <thead>
+          <tr>
+            <th class="col-expand"></th>
+            <th class="col-obj">Objet</th>
+            <th class="col-type">Type</th>
+            <th class="col-result">Résultat</th>
+            <th class="col-src">Source</th>
+            <th class="col-tgt">Cible</th>
+            <th class="col-diff">Différences</th>
+            <th class="col-action">NER</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer id="version"></footer>
+  <script src="js/app.js"></script>
+</body>
+</html>

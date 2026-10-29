@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Utils.Colas</title>
+  <link rel="stylesheet" href="common/banner.css">
+  <style>
+    html, body { margin: 0; font-family: Helvetica, Arial, sans-serif; background: #f5f6f8; color: #111; }
+    main { max-width: 1000px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-size: 20px; margin: 0 0 16px; color: #003366; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d9dfe3; border-radius: 6px; overflow: hidden; }
+    th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid #e6eaee; font-size: 14px; vertical-align: middle; }
+    th { background: #eef2f6; font-size: 12px; text-transform: uppercase; color: #445; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #f4f8fc; }
+    td.icon { font-size: 22px; width: 36px; text-align: center; }
+    td.name a { font-weight: bold; color: #003366; text-decoration: none; font-size: 15px; }
+    td.name a:hover { text-decoration: underline; }
+    td.desc { color: #444; }
+    a.open { display: inline-block; padding: 6px 16px; border-radius: 4px; background: #003366; color: #fff; text-decoration: none; font-weight: bold; font-size: 13px; }
+    #err { color: #a01b12; }
+  </style>
+</head>
+<body data-utility="">
+  <div id="bandeau-placeholder"></div>
+  <main>
+    <h1>Utilitaires J@DE</h1>
+    <table>
+      <thead><tr><th></th><th>Utilitaire</th><th>Description</th><th></th></tr></thead>
+      <tbody id="utilities"><tr><td colspan="4">Chargement…</td></tr></tbody>
+    </table>
+    <p id="err"></p>
+  </main>
+  <footer id="version"></footer>
+
+  <script src="common/banner.js"></script>
+  <script>
+    (function () {
+      var U = window.UtilsColas, esc = U.escapeHtml;
+      U.getJson('config/utilities.json').then(function (list) {
+        document.getElementById('utilities').innerHTML = list.map(function (u) {
+          var href = esc(U.root + u.url);
+          return '<tr><td class="icon">' + esc(u.icon || '') + '</td>' +
+            '<td class="name"><a href="' + href + '">' + esc(u.title) + '</a></td>' +
+            '<td class="desc">' + esc(u.description) + '</td>' +
+            '<td><a class="open" href="' + href + '">Ouvrir</a></td></tr>';
+        }).join('');
+      }).catch(function (e) {
+        document.getElementById('utilities').innerHTML = '';
+        document.getElementById('err').textContent = 'Liste des utilitaires indisponible : ' + e.message;
+      });
+    })();
+  </script>
+</body>
+</html>

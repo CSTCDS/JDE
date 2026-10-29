@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lire .h — Utils.Colas</title>
+  <link rel="stylesheet" href="../common/banner.css">
+  <style>
+    html, body { margin: 0; font-family: Helvetica, Arial, sans-serif; background: #f5f6f8; color: #111; }
+    @media (max-width: 768px) { main { padding: 10px; } select, input { min-width: 0; width: 100%; } .field { flex: 1 1 100%; } }
+    @media (max-width: 420px) { button { width: 100%; } }
+    main { max-width: 1300px; margin: 0 auto; padding: 16px; }
+    .card { background: #fff; border: 1px solid #d9dfe3; border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
+    .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+    .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: bold; }
+    select, input { font-size: 13px; padding: 6px 8px; border: 1px solid #bbb; border-radius: 4px; min-width: 180px; }
+    input { text-transform: uppercase; }
+    button { font-size: 13px; padding: 7px 18px; border-radius: 4px; border: 1px solid #003366; background: #003366; color: #fff; cursor: pointer; font-weight: bold; }
+    button.sec { background: #fff; color: #003366; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    #status { display: none; padding: 9px 12px; border-radius: 4px; margin-bottom: 14px; white-space: pre-wrap; font-size: 13px; }
+    #status.info { display: block; background: #e8f1fb; border: 1px solid #b7d3ee; }
+    #status.ok { display: block; background: #e8f6ec; border: 1px solid #b9e0c3; }
+    #status.err { display: block; background: #fdecea; border: 1px solid #f3c0bb; color: #a01b12; }
+    #result { display: none; }
+    pre { margin: 10px 0 0; padding: 12px; background: #1e1e1e; color: #d8d8d8; border-radius: 4px; font: 12.5px/1.45 Consolas, 'Courier New', monospace; overflow: auto; max-height: 65vh; }
+  </style>
+</head>
+<body data-utility="lireh">
+  <div id="bandeau-placeholder"></div>
+
+  <main>
+    <div class="card">
+      <div class="row">
+        <label class="field">Environnement
+          <select id="env">
+            <option value="E1" selected>E1 — DV920</option>
+            <option value="E2">E2 — PY920</option>
+            <option value="E3">E3 — QA920</option>
+            <option value="E4">E4 — PD920</option>
+          </select>
+        </label>
+        <label class="field">Nom de l'objet JDE
+          <input id="obj" list="recent" maxlength="10" placeholder="ex. F58CB004" autocomplete="off" spellcheck="false">
+          <datalist id="recent"></datalist>
+        </label>
+        <button id="btnRead" type="button">Afficher le .h</button>
+        <button id="btnDl" class="sec" type="button">Télécharger le .h</button>
+        <button id="btnZip" class="sec" type="button">Télécharger le .zip</button>
+      </div>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="card" id="result">
+      <div id="meta"></div>
+      <pre id="code"></pre>
+    </div>
+  </main>
+
+  <footer id="version"></footer>
+
+  <script src="../common/banner.js"></script>
+  <script>
+    window.addEventListener('error', function (e) {
+      var s = document.getElementById('status');
+      s.className = 'err'; s.textContent = 'Erreur JS : ' + e.message;
+    });
+    (function () {
+      var $ = function (id) { return document.getElementById(id); };
+      var env = $('env'), obj = $('obj'), st = $('status');
+      // API Utils.Colas (racine calculée par common/banner.js, fonctionne sous un sous-chemin IIS).
+      var API = window.UtilsColas.api('api/lireh/');
+
+      function asJson(r) {
+        var type = r.headers.get('content-type') || '';
+        if (!r.ok || type.indexOf('json') < 0) {
+          throw new Error('API introuvable (' + r.status + ') sur ' + r.url + ' — la page doit être servie par Utils.Colas.');
+        }
+        return r.json();
+      }
+
+      function status(kind, msg) { st.className = kind || ''; st.textContent = msg || ''; }
+      function busy(b) { $('btnRead').disabled = b; $('btnDl').disabled = b; $('btnZip').disabled = b; }
+
+      var RECENT_KEY = 'utils-colas.lireh.recent';
+      function loadRecent() {
+        try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch (e) { return []; }
+      }
+      function renderRecent() {
+        var dl = $('recent'); dl.innerHTML = '';
+        loadRecent().forEach(function (v) {
+          var o = document.createElement('option'); o.value = v; dl.appendChild(o);
+        });
+      }
+      function remember(name) {
+        var list = loadRecent().filter(function (v) { return v !== name; });
+        list.unshift(name);
+        try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 15))); } catch (e) {}
+        renderRecent();
+      }
+      renderRecent();
+
+      function objectName() {
+        var v = obj.value.trim().toUpperCase();
+        if (v.slice(-2) === '.H') v = v.slice(0, -2);
+        if (!/^[A-Z0-9_$]{1,10}$/.test(v)) { status('err', "Nom d'objet JDE invalide."); obj.focus(); return null; }
+        obj.value = v;
+        return v;
+      }
+
+      function url(name, mode) {
+        return API + 'header?env=' + encodeURIComponent(env.value) + '&objet=' + encodeURIComponent(name) + '&mode=' + mode;
+      }
+
+      function opts() { return { cache: 'no-store' }; }
+
+      async function errorText(res) {
+        var b = await res.json().catch(function () { return null; });
+        return (b && (b.detail || b.error)) || ('HTTP ' + res.status);
+      }
+
+      async function read() {
+        var name = objectName(); if (!name) return;
+        busy(true); status('info', 'Lecture de ' + name + '…'); $('result').style.display = 'none';
+        try {
+          var res = await fetch(url(name, 'read'), opts());
+          if (!res.ok) { status('err', await errorText(res)); return; }
+          var b = await res.json();
+          $('meta').textContent = b.objectName + ' — ' + b.env + ' (' + b.schema + '.F98780R) — ' + b.length + ' caractères';
+          $('code').textContent = b.header;
+          $('result').style.display = 'block';
+          remember(b.objectName);
+          status('ok', 'include64/' + b.objectName + '.h chargé.');
+        } catch (e) { status('err', e.message); } finally { busy(false); }
+      }
+
+      async function download(mode, ext) {
+        var name = objectName(); if (!name) return;
+        busy(true); status('info', 'Préparation de ' + name + ext + '…');
+        try {
+          var res = await fetch(url(name, mode), opts());
+          if (!res.ok) { status('err', await errorText(res)); return; }
+          var link = document.createElement('a');
+          link.href = URL.createObjectURL(await res.blob());
+          link.download = name + ext;
+          document.body.appendChild(link); link.click(); link.remove();
+          setTimeout(function () { URL.revokeObjectURL(link.href); }, 1500);
+          remember(name);
+          status('ok', 'Téléchargement de ' + name + ext + ' lancé.');
+        } catch (e) { status('err', e.message); } finally { busy(false); }
+      }
+
+      $('btnRead').addEventListener('click', read);
+      $('btnDl').addEventListener('click', function () { download('download', '.h'); });
+      $('btnZip').addEventListener('click', function () { download('zip', '.zip'); });
+      obj.addEventListener('keydown', function (e) { if (e.key === 'Enter') read(); });
+
+      // Couleur du bandeau : BannerColor de la connexion (appsettings.json), sinon couleurs historiques.
+      var COLORS = { E1: '#003366', E2: '#c0392b', E3: '#27ae60', E4: '#003366' };
+      function applyColor() { window.UtilsColas.setBannerColor(COLORS[env.value] || '#003366'); }
+      env.addEventListener('change', applyColor);
+      applyColor();
+
+      fetch(API + 'environments', { cache: 'no-store' }).then(asJson).then(function (list) {
+        if (!Array.isArray(list) || list.length === 0) return;
+        env.innerHTML = '';
+        list.forEach(function (e) {
+          if (e.bannerColor) COLORS[e.code] = window.UtilsColas.colorOf(e.bannerColor);
+          var o = document.createElement('option');
+          o.value = e.code;
+          o.textContent = e.code + ' — ' + e.schema + (e.available ? '' : ' (non configuré)');
+          o.disabled = !e.available;
+          env.appendChild(o);
+        });
+        var first = Array.prototype.find.call(env.options, function (o) { return !o.disabled; });
+        if (first) env.value = first.value;
+        applyColor();
+      }).catch(function (e) { status('err', 'Environnements indisponibles : ' + e.message); });
+    })();
+  </script>
+</body>
+</html>

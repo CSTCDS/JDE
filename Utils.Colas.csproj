@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Utils.Colas</RootNamespace>
+    <AssemblyName>Utils.Colas</AssemblyName>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="tests\**;publish\**" />
+    <Content Remove="tests\**;publish\**" />
+    <None Remove="tests\**;publish\**" />
+    <!-- secrets.json n'est jamais publié : il est géré sur le serveur (DPAPI) -->
+    <Content Update="secrets.json" CopyToPublishDirectory="Never" CopyToOutputDirectory="Never" />
+    <None Update="Tools\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" Version="10.0.*" />
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.26.100" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.*" />
+    <!-- Remplace la version vulnérable tirée par Oracle.ManagedDataAccess.Core -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Utils.Colas.Tests" />
+  </ItemGroup>
+
+</Project>

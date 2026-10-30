@@ -343,6 +343,7 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
             if (error is not null) return error;
             var screenLines = LineDiff.ScreenLines(d!.Lines);
             var bigGap = !d.Binary && screenLines > opt.AiDiffLineThreshold;
+            var textDiff = !d.Binary && d.Lines.Count > 0;
             return Results.Ok(new
             {
                 path = d.Path, binary = d.Binary,
@@ -354,8 +355,8 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
                 screenLines,
                 // Analyse IA proposée quand l'écart dépasse le seuil (en lignes affichées).
                 aiAvailable = ai.Enabled && bigGap,
-                // Texte à copier/coller dans Copilot (application Windows), proposé même sans Azure OpenAI.
-                copilotPrompt = bigGap ? AiPrompt.ForChat(d, opt.CopilotMaxChars) : null
+                // Texte à copier/coller dans Copilot (application Windows) : dès qu'il y a un écart, sans seuil.
+                copilotPrompt = textDiff ? AiPrompt.ForChat(d, opt.CopilotMaxChars) : null
             });
         });
 

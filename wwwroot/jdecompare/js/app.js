@@ -142,6 +142,15 @@
   }
 
   // --- Autocomplétion objets ---
+  // Message d'erreur lisible d'une réponse API (ProblemDetails.detail, {error}, sinon statut HTTP).
+  function apiErrorMessage(resp, text) {
+    try {
+      const j = JSON.parse(text);
+      if (j.detail || j.error || j.title) return j.detail || j.error || j.title;
+    } catch { /* réponse non JSON */ }
+    return `Erreur serveur (HTTP ${resp.status}${resp.statusText ? ' ' + resp.statusText : ''})`;
+  }
+
   async function autocompleteObjects(query) {
     const suggestions = document.getElementById('objectSuggestions');
     if (!query || query.trim().length < 3) {
@@ -160,7 +169,7 @@
       if (!resp.ok) {
         const errText = await resp.text();
         console.error('[JDE Compare] autocomplete erreur:', errText);
-        suggestions.innerHTML = '<div class="suggestion-item" style="color:red;cursor:default;">Erreur serveur</div>';
+        suggestions.innerHTML = `<div class="suggestion-item" style="color:red;cursor:default;">${escHtml(apiErrorMessage(resp, errText))}</div>`;
         suggestions.classList.add('visible');
         return;
       }
@@ -207,7 +216,7 @@
       if (!resp.ok) {
         const errText = await resp.text();
         console.error('[JDE Compare] autocomplete projets erreur:', errText);
-        suggestions.innerHTML = '<div class="suggestion-item" style="color:red;cursor:default;">Erreur serveur</div>';
+        suggestions.innerHTML = `<div class="suggestion-item" style="color:red;cursor:default;">${escHtml(apiErrorMessage(resp, errText))}</div>`;
         suggestions.classList.add('visible');
         return;
       }

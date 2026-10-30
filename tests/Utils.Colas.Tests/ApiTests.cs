@@ -47,11 +47,11 @@ public sealed class UtilsColasFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Development");
         builder.ConfigureAppConfiguration((_, cfg) => cfg.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            // Identifiants factices pour DV920 uniquement ; PD920 reste sans identifiants.
-            ["OracleConnections:DV920:UserId"] = "user",
-            ["OracleConnections:DV920:Password"] = SecretPassword,
-            ["OracleConnections:PD920:UserId"] = "",
-            ["OracleConnections:PD920:Password"] = "",
+            // Identifiants factices pour E1 (DV920) uniquement ; E4 (PD920) reste sans identifiants.
+            ["OracleConnections:E1:UserId"] = "user",
+            ["OracleConnections:E1:Password"] = SecretPassword,
+            ["OracleConnections:E4:UserId"] = "",
+            ["OracleConnections:E4:Password"] = "",
             ["OracleConnections:ORPHAN:UserId"] = "user",
             ["OracleConnections:ORPHAN:Password"] = SecretPassword
         }));
@@ -203,7 +203,7 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
         var body = await Client().GetStringAsync("/api/connections");
         Assert.DoesNotContain(UtilsColasFactory.SecretPassword, body);
         Assert.DoesNotContain("password", body, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("PYI920", body);
+        Assert.Contains("E2", body);
     }
 
     // --- Lire .h ---
@@ -212,7 +212,7 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
     public async Task LireH_Environments_ComeFromOracleConnections_InOrder()
     {
         var list = await Client().GetFromJsonAsync<JsonElement[]>("/api/lireh/environments");
-        Assert.Equal(["DV920", "PYI920", "QA920", "PD920"], list!.Select(e => e.GetProperty("code").GetString()!).ToArray());
+        Assert.Equal(["E1", "E2", "E3", "E4"], list!.Select(e => e.GetProperty("code").GetString()!).ToArray());
         Assert.Equal("PY920", list![1].GetProperty("schema").GetString());
         Assert.True(list![0].GetProperty("available").GetBoolean());
         Assert.False(list![3].GetProperty("available").GetBoolean());
@@ -221,7 +221,7 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
     [Fact]
     public async Task Connection_WithoutDataSource_IsIgnoredEverywhere()
     {
-        // Clé orpheline (ex. ancien secrets.json de lire.h avec "E1") : ne doit apparaître dans aucune liste.
+        // Clé orpheline (ex. ancien secrets.json avec "DV920") : ne doit apparaître dans aucune liste.
         var client = Client();
         Assert.DoesNotContain("ORPHAN", await client.GetStringAsync("/api/lireh/environments"));
         Assert.DoesNotContain("ORPHAN", await client.GetStringAsync("/api/jdecompare/environments"));
@@ -229,12 +229,12 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
     }
 
     [Theory]
-    [InlineData("/api/lireh/header?env=DV920&objet=", "invalide")]
-    [InlineData("/api/lireh/header?env=DV920&objet=F58'--", "invalide")]
-    [InlineData("/api/lireh/header?env=DV920&objet=TROPLONGNOM123", "invalide")]
+    [InlineData("/api/lireh/header?env=E1&objet=", "invalide")]
+    [InlineData("/api/lireh/header?env=E1&objet=F58'--", "invalide")]
+    [InlineData("/api/lireh/header?env=E1&objet=TROPLONGNOM123", "invalide")]
     [InlineData("/api/lireh/header?env=E9&objet=F0101", "inconnu")]
     [InlineData("/api/lireh/header?env=ORPHAN&objet=F0101", "inconnu")]
-    [InlineData("/api/lireh/header?env=PD920&objet=F0101", "manquants")]
+    [InlineData("/api/lireh/header?env=E4&objet=F0101", "manquants")]
     public async Task LireH_Header_ValidatesInput(string url, string expected)
     {
         var res = await Client().GetAsync(url);
@@ -249,7 +249,7 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
     {
         var list = await Client().GetFromJsonAsync<JsonElement[]>("/api/jdecompare/environments");
         Assert.Equal(["DV920", "PY920", "QA920", "PD920"], list!.Select(e => e.GetProperty("environment").GetString()!).ToArray());
-        Assert.Equal("PYI920", list![1].GetProperty("connection").GetString());
+        Assert.Equal("E2", list![1].GetProperty("connection").GetString());
     }
 
     [Fact]
@@ -283,7 +283,7 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
         {
             Content = JsonContent.Create(new { source = "XX920", target = "PD920", objects = new[] { "F0101" } })
         };
-        req.Headers.Add("X-JDE-Connection", "DV920");
+        req.Headers.Add("X-JDE-Connection", "E1");
         var res = await Client().SendAsync(req);
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         Assert.Contains("XX920", await res.Content.ReadAsStringAsync());
@@ -293,7 +293,7 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
     public async Task JdeCompare_ReferenceWithoutCredentials_IsRejected()
     {
         var req = new HttpRequestMessage(HttpMethod.Get, "/api/jdecompare/statuses");
-        req.Headers.Add("X-JDE-Connection", "PD920");
+        req.Headers.Add("X-JDE-Connection", "E4");
         var res = await Client().SendAsync(req);
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         Assert.Contains("manquants", await res.Content.ReadAsStringAsync());

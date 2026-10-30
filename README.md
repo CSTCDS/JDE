@@ -37,8 +37,8 @@ Fusion de **Lire .h** (ex-`Utils.htm` d'appli-jade03) et **JDE Compare** (ex-NER
 - **Liste unique des environnements** : Lire .h, JDE Compare et le bandeau affichent les connexions de
   `OracleConnections`, triées par `Order` (aucune autre liste à maintenir). Lire .h lit `<Schema>.F98780R` ;
   JDE Compare utilise `Schema` comme nom d'environnement (schéma des specs). Une connexion sans `DataSource`
-  (clé orpheline, ex. `E1` d'un ancien `secrets.json`) est ignorée, avec un avertissement dans les logs.
-  Les clés de `secrets.json` doivent donc reprendre les noms de connexion (`DV920`, `PYI920`, `QA920`, `PD920`).
+  (clé orpheline d'un ancien `secrets.json`) est ignorée, avec un avertissement dans les logs.
+  Les clés de `secrets.json` et de `appsettings.Production.json` doivent donc reprendre les noms de connexion (`E1`, `E2`, `E3`, `E4`).
 - JDE Compare : la connexion de référence est choisie dans le bandeau (cookie `JDE-Connection`).
 
 ### Adressage (EZConnect) et surcharge serveur

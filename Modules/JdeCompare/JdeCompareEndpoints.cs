@@ -394,7 +394,7 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
     {
         if (req.Headers.TryGetValue("X-JDE-Connection", out var header) && !string.IsNullOrWhiteSpace(header))
             return header.ToString();
-        if (req.Cookies.TryGetValue("JDE-Connection", out var cookie) && !string.IsNullOrWhiteSpace(cookie))
+        if (req.Cookies.TryGetValue("JDE-Connection", out var cookie) && !string.IsNullOrWhiteSpace(cookie) && store.All.ContainsKey(cookie))
             return cookie;
         if (req.Query.TryGetValue("connection", out var query) && !string.IsNullOrWhiteSpace(query))
             return query.ToString();

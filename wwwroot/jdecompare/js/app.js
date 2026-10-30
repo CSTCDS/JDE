@@ -707,13 +707,66 @@
       } else if (d.type === 'removed') {
         html += `<div class="diff-line diff-removed"><span class="diff-ln">-${d.line}</span> ${escHtml(d.content)}</div>`;
       } else if (d.type === 'modified') {
-        html += `<div class="diff-line diff-removed"><span class="diff-ln">~${d.line}</span> ${escHtml(d.srcContent)}</div>`;
-        html += `<div class="diff-line diff-added"><span class="diff-ln">~${d.line}</span> ${escHtml(d.tgtContent)}</div>`;
+        const [src, tgt] = charDiff(d.srcContent || '', d.tgtContent || '');
+        html += `<div class="diff-line diff-removed"><span class="diff-ln">~${d.line}</span> ${src}</div>`;
+        html += `<div class="diff-line diff-added"><span class="diff-ln">~${d.line}</span> ${tgt}</div>`;
       } else if (d.type === 'truncated') {
         html += `<div class="diff-line diff-truncated">${escHtml(d.content)}</div>`;
       }
     });
     return html + '</div>';
+  }
+
+  // Diff caractère par caractère d'une ligne modifiée : renvoie [html source, html cible] avec les écarts dans <mark>.
+  // LCS sur les caractères restant après préfixe/suffixe communs ; au-delà de CHAR_DIFF_MAX cellules, tout le milieu est surligné.
+  const CHAR_DIFF_MAX = 250000;
+  function charDiff(a, b) {
+    let pre = 0;
+    while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++;
+    let suf = 0;
+    while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++;
+    const ma = a.slice(pre, a.length - suf), mb = b.slice(pre, b.length - suf);
+    const keepA = new Array(ma.length).fill(false), keepB = new Array(mb.length).fill(false);
+    if (ma.length && mb.length && ma.length * mb.length <= CHAR_DIFF_MAX) {
+      const n = ma.length, m = mb.length;
+      const t = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+      for (let i = n - 1; i >= 0; i--)
+        for (let j = m - 1; j >= 0; j--)
+          t[i][j] = ma[i] === mb[j] ? t[i + 1][j + 1] + 1 : Math.max(t[i + 1][j], t[i][j + 1]);
+      let i = 0, j = 0;
+      while (i < n && j < m) {
+        if (ma[i] === mb[j]) { keepA[i++] = true; keepB[j++] = true; }
+        else if (t[i + 1][j] >= t[i][j + 1]) i++;
+        else j++;
+      }
+      // Les fragments communs très courts entre deux écarts (ex. une lettre isolée) sont surlignés aussi : plus lisible.
+      absorbShortRuns(keepA); absorbShortRuns(keepB);
+    }
+    const render = (s, mid, keep) => escHtml(s.slice(0, pre)) + markRuns(mid, keep) + escHtml(s.slice(s.length - suf));
+    return [render(a, ma, keepA), render(b, mb, keepB)];
+  }
+
+  function absorbShortRuns(keep) {
+    let i = 0;
+    while (i < keep.length) {
+      if (!keep[i]) { i++; continue; }
+      let j = i;
+      while (j < keep.length && keep[j]) j++;
+      if (i > 0 && j < keep.length && j - i < 3) keep.fill(false, i, j);
+      i = j;
+    }
+  }
+
+  function markRuns(s, keep) {
+    let html = '', i = 0;
+    while (i < s.length) {
+      let j = i;
+      while (j < s.length && keep[j] === keep[i]) j++;
+      const part = escHtml(s.slice(i, j));
+      html += keep[i] ? part : `<mark class="diff-char">${part}</mark>`;
+      i = j;
+    }
+    return html;
   }
 
   // --- Filtre résultats ---

@@ -109,5 +109,9 @@ public class AiAnalysisTests
         Assert.Contains("Source : DV920 (2 lignes)", prompt);
         Assert.Contains("Cible : PD920 (fichier absent)", prompt);
         Assert.Contains("- L1: a", prompt);
+
+        var chat = AiPrompt.ForChat(d, 1000);
+        Assert.StartsWith(AiPrompt.System, chat);
+        Assert.EndsWith(prompt, chat);
     }
 }

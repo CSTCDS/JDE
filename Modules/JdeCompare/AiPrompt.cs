@@ -21,6 +21,9 @@ public static class AiPrompt
         "Distingue les écarts purement cosmétiques (commentaires, espaces, dates de génération) des écarts fonctionnels. " +
         "N'invente rien qui ne soit pas dans le diff ; si le diff est tronqué, signale-le.";
 
+    // Texte complet (consignes + diff) à coller dans une application de chat (Copilot Windows...).
+    public static string ForChat(FileDiff d, int maxChars) => System + "\n\n" + User(d, maxChars);
+
     public static string User(FileDiff d, int maxChars)
     {
         var sb = new StringBuilder();

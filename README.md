@@ -104,6 +104,11 @@ Configuration (vide = fonction désactivée, le bouton n'apparaît pas) :
 
 Le diff (contenu des sources de l'objet) est envoyé à la ressource Azure OpenAI configurée.
 
+#### Sans Azure OpenAI : « 📋 Copier pour Copilot »
+
+Le bouton **📋 Copier pour Copilot** est toujours proposé au-delà du seuil, même si Azure OpenAI n'est pas configuré. Il copie dans le presse-papiers les consignes et le diff, à coller (Ctrl+V) dans l'application Copilot de Windows ou dans Microsoft 365 Copilot Chat.
+Le texte est limité à `JdeCompare:CopilotMaxChars` caractères (12000 par défaut) ; au-delà, le diff est tronqué et la mention est indiquée à l'IA. Aucune donnée ne sort du serveur : c'est l'utilisateur qui colle le texte dans son propre Copilot.
+
 ## Exécution locale
 
 Pré-requis : SDK .NET 10 (installé dans `%USERPROFILE%\.dotnet` sur ce poste).

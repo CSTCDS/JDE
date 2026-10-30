@@ -613,15 +613,19 @@
           : `Fichier binaire : ${formatSize(data.srcSize)} (source) / ${formatSize(data.tgtSize)} (cible), contenu différent.`;
       } else {
         html = `${escHtml(btn.dataset.src)} : ${data.srcLineCount} lignes — ${escHtml(btn.dataset.tgt)} : ${data.tgtLineCount} lignes<br>` + renderDiff(data.diff, 'Contenu identique');
-        if (data.aiAvailable) {
-          html += `<div class="ai-block"><button class="btn btn-xs btn-ai">✨ Analyse IA</button>
-            <span class="ai-hint">Écart de ${data.screenLines} lignes : demander une explication de l'écart.</span>
+        if (data.aiAvailable || data.copilotPrompt) {
+          html += `<div class="ai-block">`
+            + (data.aiAvailable ? `<button class="btn btn-xs btn-ai">✨ Analyse IA</button> ` : '')
+            + (data.copilotPrompt ? `<button class="btn btn-xs btn-copilot" title="Copie les consignes et le diff : coller ensuite dans Copilot (Ctrl+V)">📋 Copier pour Copilot</button>` : '')
+            + `<span class="ai-hint">Écart de ${data.screenLines} lignes : demander une explication de l'écart.</span>
             <div class="ai-result"></div></div>`;
         }
       }
       box.innerHTML = html;
       const aiBtn = box.querySelector('.btn-ai');
       if (aiBtn) aiBtn.addEventListener('click', (e) => { e.stopPropagation(); runAiAnalysis(btn, aiBtn, box.querySelector('.ai-result')); });
+      const cpBtn = box.querySelector('.btn-copilot');
+      if (cpBtn) cpBtn.addEventListener('click', (e) => { e.stopPropagation(); copyForCopilot(cpBtn, data.copilotPrompt); });
       box.dataset.loaded = '1';
       btn.textContent = 'Masquer';
     } catch (err) {
@@ -646,11 +650,31 @@
       out.innerHTML = `<div class="ai-analysis">${renderAiText(data.analysis)}</div>
         <div class="ai-disclaimer">Analyse générée par IA : à vérifier.</div>`;
       aiBtn.style.display = 'none';
-      aiBtn.nextElementSibling.style.display = 'none';
     } catch (err) {
       out.innerHTML = `<span style="color:red;">Erreur IA : ${escHtml(err.message)}</span>`;
       aiBtn.disabled = false;
     }
+  }
+
+  // Copie le prompt (consignes + diff) pour le coller dans Copilot. navigator.clipboard n'existe qu'en https/localhost.
+  async function copyForCopilot(cpBtn, text) {
+    let ok = false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); ok = true; }
+    } catch { /* repli ci-dessous */ }
+    if (!ok) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
+      document.body.appendChild(ta);
+      ta.select();
+      try { ok = document.execCommand('copy'); } catch { ok = false; }
+      ta.remove();
+    }
+    const label = cpBtn.textContent;
+    cpBtn.textContent = ok ? '✓ Copié : coller dans Copilot (Ctrl+V)' : '✗ Copie impossible';
+    setTimeout(() => { cpBtn.textContent = label; }, 4000);
   }
 
   // Mise en forme minimale (texte échappé) : **gras**, `code`, titres #, puces.

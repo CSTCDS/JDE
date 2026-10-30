@@ -390,6 +390,8 @@ body {
 .btn-ai { background: #6f42c1; color: #fff; border: none; cursor: pointer; }
 .btn-ai:hover { background: #59339d; }
 .btn-ai:disabled { opacity: 0.5; cursor: wait; }
+.btn-copilot { background: #0078d4; color: #fff; border: none; cursor: pointer; }
+.btn-copilot:hover { background: #005a9e; }
 .ai-hint { margin-left: 8px; color: #666; font-size: 11px; }
 .ai-analysis { margin-top: 6px; padding: 8px 10px; border-left: 4px solid #6f42c1; background: #f6f2fc; font-size: 12px; line-height: 1.45; }
 .ai-analysis .ai-title { font-weight: 600; margin-top: 6px; }

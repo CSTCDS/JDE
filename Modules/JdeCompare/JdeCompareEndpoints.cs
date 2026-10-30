@@ -13,6 +13,8 @@ public sealed class JdeCompareOptions
     public int CommandTimeoutSeconds { get; set; } = 60;
     // Analyse IA proposée au-delà de ce nombre de lignes de diff affichées (une modification = 2 lignes).
     public int AiDiffLineThreshold { get; set; } = 2;
+    // Taille maximale du texte « Copier pour Copilot » (limite de saisie des applications de chat).
+    public int CopilotMaxChars { get; set; } = 12000;
 }
 
 public sealed record CompareRequest(string? Source, string? Target, string[]? Objects);
@@ -340,6 +342,7 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
             var (error, d) = await LoadFileDiff(ctx, store, body);
             if (error is not null) return error;
             var screenLines = LineDiff.ScreenLines(d!.Lines);
+            var bigGap = !d.Binary && screenLines > opt.AiDiffLineThreshold;
             return Results.Ok(new
             {
                 path = d.Path, binary = d.Binary,
@@ -350,7 +353,9 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
                 diff = d.Lines,
                 screenLines,
                 // Analyse IA proposée quand l'écart dépasse le seuil (en lignes affichées).
-                aiAvailable = ai.Enabled && !d.Binary && screenLines > opt.AiDiffLineThreshold
+                aiAvailable = ai.Enabled && bigGap,
+                // Texte à copier/coller dans Copilot (application Windows), proposé même sans Azure OpenAI.
+                copilotPrompt = bigGap ? AiPrompt.ForChat(d, opt.CopilotMaxChars) : null
             });
         });
 

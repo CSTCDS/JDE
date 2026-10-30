@@ -29,8 +29,11 @@
       tgtSelect.innerHTML = '';
 
       const avail = envs.filter(e => e.available !== false);
-      const first = avail.length ? avail[0].environment : null;
-      const last = avail.length ? avail[avail.length - 1].environment : null;
+      // Dernier choix mémorisé (localStorage, sans expiration), sinon premier / dernier environnement disponible.
+      const saved = readStore(ENVS_KEY, {}) || {};
+      const usable = (name) => avail.some(e => e.environment === name);
+      const first = usable(saved.source) ? saved.source : (avail.length ? avail[0].environment : null);
+      const last = usable(saved.target) ? saved.target : (avail.length ? avail[avail.length - 1].environment : null);
       envs.forEach(e => {
         const label = e.environment + (e.available === false ? ' (identifiants manquants)' : '');
         const s = new Option(label, e.environment, e.environment === first, e.environment === first);
@@ -39,9 +42,28 @@
         srcSelect.add(s);
         tgtSelect.add(t);
       });
+      syncQuickEnvs();
     } catch (err) {
       console.error('Erreur chargement environnements:', err);
     }
+  }
+
+  function saveEnvironments() {
+    const source = document.getElementById('envSource').value;
+    const target = document.getElementById('envTarget').value;
+    if (source || target) writeStore(ENVS_KEY, { source, target, at: Date.now() });
+    syncQuickEnvs();
+  }
+
+  // Copie la liste et le choix du formulaire dans la barre de recherche des résultats.
+  function syncQuickEnvs() {
+    [['envSource', 'quickSource'], ['envTarget', 'quickTarget']].forEach(([from, to]) => {
+      const a = document.getElementById(from);
+      const b = document.getElementById(to);
+      if (!a || !b) return;
+      if (b.options.length !== a.options.length) b.innerHTML = a.innerHTML;
+      b.value = a.value;
+    });
   }
 
   // --- Chargement des statuts ---
@@ -83,32 +105,16 @@
       });
     });
 
-    // Autocomplétion objet
-    const objectInput = document.getElementById('objectInput');
-    let objDebounce = null;
-    objectInput.addEventListener('input', () => {
-      clearTimeout(objDebounce);
-      objDebounce = setTimeout(() => autocompleteObjects(objectInput.value), 300);
-    });
-    objectInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        const val = objectInput.value.trim();
-        if (val.length > 0) {
-          addObject(val, '', '');
-          objectInput.value = '';
-          hideSuggestions('objectSuggestions');
-        }
-      }
-    });
+    // Autocomplétion objet (historique + F9860)
+    attachAutocomplete(document.getElementById('objectInput'), document.getElementById('objectSuggestions'),
+      () => 'object', (it) => addObject(it.value, it.tag, it.desc));
 
-    // Autocomplétion projet
-    const projectInput = document.getElementById('projectInput');
-    let prjDebounce = null;
-    projectInput.addEventListener('input', () => {
-      clearTimeout(prjDebounce);
-      prjDebounce = setTimeout(() => autocompleteProjects(projectInput.value), 300);
-    });
+    // Autocomplétion projet (historique + F98220)
+    attachAutocomplete(document.getElementById('projectInput'), document.getElementById('projectSuggestions'),
+      () => 'project', (it) => selectProject(it.value, it.desc));
+
+    // Environnements mémorisés (sans expiration) à chaque changement
+    ['envSource', 'envTarget'].forEach(id => document.getElementById(id).addEventListener('change', saveEnvironments));
 
     // Statut
     document.getElementById('statusSelect').addEventListener('change', (e) => {
@@ -127,8 +133,12 @@
       if (!e.target.closest('.autocomplete-wrapper')) {
         hideSuggestions('objectSuggestions');
         hideSuggestions('projectSuggestions');
+        hideSuggestions('quickSuggestions');
       }
     });
+
+    // Recherche complémentaire depuis la page résultats
+    setupQuickSearch();
   }
 
   // --- Connexion de référence ---
@@ -151,103 +161,158 @@
     return `Erreur serveur (HTTP ${resp.status}${resp.statusText ? ' ' + resp.statusText : ''})`;
   }
 
-  async function autocompleteObjects(query) {
-    const suggestions = document.getElementById('objectSuggestions');
-    if (!query || query.trim().length < 3) {
-      hideSuggestions('objectSuggestions');
-      return;
-    }
+  // --- Historique des recherches (localStorage, propre au navigateur) ---
+  const HISTORY_KEY = 'utilsColas.jdeCompare.history';
+  const ENVS_KEY = 'utilsColas.jdeCompare.envs';
+  const HISTORY_MAX = 50;
 
-    try {
-      const conn = getConnection();
-      console.log('[JDE Compare] autocomplete objets q=' + query + ' conn=' + conn);
-      const url = `${API_BASE}/objects?q=${encodeURIComponent(query.trim())}&limit=15`;
-      const resp = await fetch(url, {
-        headers: conn ? { 'X-JDE-Connection': conn } : {}
-      });
-      console.log('[JDE Compare] autocomplete response status=' + resp.status);
-      if (!resp.ok) {
-        const errText = await resp.text();
-        console.error('[JDE Compare] autocomplete erreur:', errText);
-        suggestions.innerHTML = `<div class="suggestion-item" style="color:red;cursor:default;">${escHtml(apiErrorMessage(resp, errText))}</div>`;
-        suggestions.classList.add('visible');
-        return;
-      }
-      const data = await resp.json();
-
-      suggestions.innerHTML = '';
-      if (data.length === 0) {
-        suggestions.innerHTML = '<div class="suggestion-item" style="color:#999;cursor:default;">Aucun résultat</div>';
-      } else {
-        data.forEach(item => {
-          const div = document.createElement('div');
-          div.className = 'suggestion-item';
-          div.innerHTML = `<span><span class="obj-name">${escHtml(item.objectName)}</span> <span class="obj-desc">${escHtml(item.description)}</span></span><span class="obj-type">${escHtml(item.objectType)}</span>`;
-          div.addEventListener('click', () => {
-            addObject(item.objectName, item.objectType, item.description);
-            document.getElementById('objectInput').value = '';
-            hideSuggestions('objectSuggestions');
-          });
-          suggestions.appendChild(div);
-        });
-      }
-      suggestions.classList.add('visible');
-    } catch (err) {
-      console.error('[JDE Compare] Erreur autocomplete objets:', err);
-      suggestions.innerHTML = '<div class="suggestion-item" style="color:red;cursor:default;">Erreur: ' + escHtml(err.message) + '</div>';
-      suggestions.classList.add('visible');
-    }
+  function readStore(key, fallback) {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
+  }
+  function writeStore(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* stockage indisponible ou plein */ }
   }
 
-  // --- Autocomplétion projets ---
-  async function autocompleteProjects(query) {
-    const suggestions = document.getElementById('projectSuggestions');
-    if (!query || query.trim().length < 3) {
-      hideSuggestions('projectSuggestions');
-      return;
-    }
-
-    try {
-      const conn = getConnection();
-      console.log('[JDE Compare] autocomplete projets q=' + query + ' conn=' + conn);
-      const resp = await fetch(`${API_BASE}/projects?q=${encodeURIComponent(query.trim())}&limit=15`, {
-        headers: conn ? { 'X-JDE-Connection': conn } : {}
-      });
-      if (!resp.ok) {
-        const errText = await resp.text();
-        console.error('[JDE Compare] autocomplete projets erreur:', errText);
-        suggestions.innerHTML = `<div class="suggestion-item" style="color:red;cursor:default;">${escHtml(apiErrorMessage(resp, errText))}</div>`;
-        suggestions.classList.add('visible');
-        return;
-      }
-      const data = await resp.json();
-
-      suggestions.innerHTML = '';
-      if (data.length === 0) {
-        suggestions.innerHTML = '<div class="suggestion-item" style="color:#999;cursor:default;">Aucun résultat</div>';
-      } else {
-        data.forEach(item => {
-          const div = document.createElement('div');
-          div.className = 'suggestion-item';
-          div.innerHTML = `<span class="obj-name">${escHtml(item.projectId)}</span> <span class="obj-desc">${escHtml(item.description)}</span><span class="obj-type">St:${escHtml(item.status)}</span>`;
-          div.addEventListener('click', () => {
-            selectProject(item.projectId);
-            document.getElementById('projectInput').value = '';
-            hideSuggestions('projectSuggestions');
-          });
-          suggestions.appendChild(div);
-        });
-      }
-      suggestions.classList.add('visible');
-    } catch (err) {
-      console.error('Erreur autocomplete projets:', err);
-    }
+  function getHistory(kind) {
+    const list = readStore(HISTORY_KEY, []);
+    return Array.isArray(list) ? list.filter(h => h && h.kind === kind && h.value) : [];
   }
 
+  // items : [{ value, desc, tag }] ; les plus récents en tête, sans doublon.
+  function addHistory(kind, items) {
+    let list = readStore(HISTORY_KEY, []);
+    if (!Array.isArray(list)) list = [];
+    const at = Date.now();
+    [...items].reverse().forEach(it => {
+      const value = (it.value || '').trim().toUpperCase();
+      if (!value) return;
+      list = list.filter(h => !(h.kind === kind && h.value === value));
+      list.unshift({ kind, value, desc: it.desc || '', tag: it.tag || '', at });
+    });
+    writeStore(HISTORY_KEY, list.slice(0, HISTORY_MAX));
+  }
+
+  function removeHistory(kind, value) {
+    writeStore(HISTORY_KEY, readStore(HISTORY_KEY, []).filter(h => !(h.kind === kind && h.value === value)));
+  }
+
+  function clearHistory(kind) {
+    writeStore(HISTORY_KEY, readStore(HISTORY_KEY, []).filter(h => h.kind !== kind));
+  }
+
+  // --- Autocomplétion (objet ou projet) : historique local + recherche serveur (min. 3 caractères) ---
+  // getKind() : 'object' | 'project' ; onPick({ value, desc, tag }).
+  function attachAutocomplete(input, box, getKind, onPick) {
+    let debounce = null;
+    let seq = 0;
+    const refresh = () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => showSuggestions(input, box, getKind(), onPick, ++seq, () => seq), 250);
+    };
+    input.addEventListener('input', refresh);
+    input.addEventListener('focus', refresh);
+    input.addEventListener('keydown', (e) => {
+      const items = [...box.querySelectorAll('.suggestion-item[data-value]')];
+      const cur = box.querySelector('.suggestion-item.active');
+      let i = items.indexOf(cur);
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!items.length || !box.classList.contains('visible')) return;
+        e.preventDefault();
+        i = e.key === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+        items.forEach(x => x.classList.toggle('active', x === items[i]));
+        items[i].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Escape') {
+        box.classList.remove('visible');
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (cur && box.classList.contains('visible')) { cur.click(); return; }
+        const val = input.value.trim();
+        if (val) { onPick({ value: val.toUpperCase(), desc: '', tag: '' }); input.value = ''; box.classList.remove('visible'); }
+      }
+    });
+  }
+
+  async function showSuggestions(input, box, kind, onPick, mySeq, currentSeq) {
+    const q = input.value.trim().toUpperCase();
+    const history = getHistory(kind).filter(h => !q || h.value.includes(q) || (h.desc || '').toUpperCase().includes(q)).slice(0, 10);
+    let server = [];
+    let error = '';
+    if (q.length >= 3) {
+      try {
+        const conn = getConnection();
+        const url = kind === 'project'
+          ? `${API_BASE}/projects?q=${encodeURIComponent(q)}&limit=15`
+          : `${API_BASE}/objects?q=${encodeURIComponent(q)}&limit=15`;
+        const resp = await fetch(url, { headers: conn ? { 'X-JDE-Connection': conn } : {} });
+        if (!resp.ok) {
+          const errText = await resp.text();
+          console.error('[JDE Compare] autocomplete erreur:', errText);
+          error = apiErrorMessage(resp, errText);
+        } else {
+          const data = await resp.json();
+          server = (Array.isArray(data) ? data : []).map(d => kind === 'project'
+            ? { value: d.projectId, desc: d.description, tag: 'St:' + (d.status || '') }
+            : { value: d.objectName, desc: d.description, tag: d.objectType });
+        }
+      } catch (err) {
+        error = 'Erreur: ' + err.message;
+      }
+    }
+    if (mySeq !== currentSeq()) return; // une saisie plus récente a pris le relais
+
+    const known = new Set(history.map(h => h.value));
+    server = server.filter(s => !known.has((s.value || '').trim().toUpperCase()));
+    box.innerHTML = '';
+    const addItem = (it, isHistory) => {
+      const div = document.createElement('div');
+      div.className = 'suggestion-item' + (isHistory ? ' suggestion-history' : '');
+      div.dataset.value = it.value;
+      div.innerHTML = `<span>${isHistory ? '<span class="hist-icon" title="Historique">🕘</span> ' : ''}<span class="obj-name">${escHtml(it.value)}</span> <span class="obj-desc">${escHtml(it.desc || '')}</span></span>`
+        + `<span class="obj-type">${escHtml(it.tag || '')}${isHistory ? ' <span class="hist-remove" title="Retirer de l\'historique">×</span>' : ''}</span>`;
+      div.addEventListener('mousedown', (e) => e.preventDefault()); // garde le focus dans le champ
+      div.addEventListener('click', (e) => {
+        if (e.target.classList.contains('hist-remove')) {
+          e.stopPropagation();
+          removeHistory(kind, it.value);
+          showSuggestions(input, box, kind, onPick, mySeq, currentSeq);
+          return;
+        }
+        onPick({ value: it.value, desc: it.desc || '', tag: it.tag || '' });
+        input.value = '';
+        box.classList.remove('visible');
+      });
+      box.appendChild(div);
+    };
+    const header = (text, action) => {
+      const h = document.createElement('div');
+      h.className = 'suggestion-header';
+      h.innerHTML = `<span>${text}</span>` + (action ? `<a href="#" class="hist-clear">${action}</a>` : '');
+      const link = h.querySelector('.hist-clear');
+      if (link) link.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        clearHistory(kind);
+        showSuggestions(input, box, kind, onPick, mySeq, currentSeq);
+      });
+      box.appendChild(h);
+    };
+
+    if (history.length) {
+      header('Recherches récentes', q ? '' : 'Effacer l\'historique');
+      history.forEach(h => addItem(h, true));
+    }
+    if (q.length >= 3) {
+      if (history.length) header(kind === 'project' ? 'Projets' : 'Objets');
+      if (error) box.insertAdjacentHTML('beforeend', `<div class="suggestion-item" style="color:red;cursor:default;">${escHtml(error)}</div>`);
+      else if (!server.length && !history.length) box.insertAdjacentHTML('beforeend', '<div class="suggestion-item" style="color:#999;cursor:default;">Aucun résultat</div>');
+      server.forEach(s => addItem(s, false));
+    }
+    box.classList.toggle('visible', box.children.length > 0);
+  }
   // --- Sélection d'un projet → charger ses objets ---
-  async function selectProject(projectId) {
+  async function selectProject(projectId, desc) {
     const infoBox = document.getElementById('projectInfo');
     infoBox.innerHTML = '<span class="spinner"></span> Chargement des objets du projet...';
+    addHistory('project', [{ value: projectId, desc: desc || '' }]);
 
     try {
       const conn = getConnection();
@@ -307,7 +372,7 @@
         link.style.padding = '3px 0';
         link.addEventListener('click', async (e) => {
           e.preventDefault();
-          await selectProject(p.projectId);
+          await selectProject(p.projectId, p.description);
           box.querySelectorAll('a').forEach(a => a.style.fontWeight = 'normal');
           link.style.fontWeight = 'bold';
         });
@@ -388,28 +453,11 @@
     const btn = document.getElementById('btnCompare');
     btn.disabled = true;
     setStatus('<span class="spinner"></span> Comparaison en cours...');
+    saveEnvironments();
+    if (currentMode === 'object') addHistory('object', selectedObjects.map(o => ({ value: o.name, desc: o.desc, tag: o.type })));
 
     try {
-      const conn = getConnection();
-      const resp = await fetch(`${API_BASE}/compare`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-JDE-Connection': conn
-        },
-        body: JSON.stringify({
-          source,
-          target,
-          objects: selectedObjects.map(o => o.name)
-        })
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.detail || err.error || resp.statusText);
-      }
-
-      const result = await resp.json();
+      const result = await fetchComparison(source, target, selectedObjects.map(o => o.name));
       displayResults(result);
       setStatus(`Comparaison terminée : ${result.totalObjects} objet(s).`);
       collapseFormSection();
@@ -420,6 +468,104 @@
     }
   }
 
+  async function fetchComparison(source, target, objects) {
+    const resp = await fetch(`${API_BASE}/compare`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JDE-Connection': getConnection()
+      },
+      body: JSON.stringify({ source, target, objects })
+    });
+    if (!resp.ok) throw new Error(apiErrorMessage(resp, await resp.text()));
+    return resp.json();
+  }
+
+  // --- Recherche complémentaire depuis la page résultats ---
+  let lastResult = null;
+  const RESULT_COUNTERS = { '=': 'identical', '≠': 'different', '↑': 'moreRecent', '?': 'missing', '-': 'notApplicable', '✓': 'conforme', '!': 'errors' };
+
+  // Les nouveaux objets passent en tête ; un objet déjà affiché est remplacé par son nouveau résultat.
+  function mergeResults(previous, added) {
+    const names = new Set(added.data.map(d => d.objectName));
+    const data = [...added.data, ...previous.data.filter(d => !names.has(d.objectName))];
+    const merged = { ...previous, ...added, data, totalObjects: data.length };
+    Object.values(RESULT_COUNTERS).forEach(k => { merged[k] = 0; });
+    data.forEach(d => { const k = RESULT_COUNTERS[d.result]; if (k) merged[k]++; });
+    return merged;
+  }
+
+  function setupQuickSearch() {
+    const input = document.getElementById('quickInput');
+    const kind = document.getElementById('quickKind');
+    const setQuickStatus = (html) => { document.getElementById('quickStatus').innerHTML = html; };
+
+    [['quickSource', 'envSource'], ['quickTarget', 'envTarget']].forEach(([from, to]) => {
+      document.getElementById(from).addEventListener('change', (e) => {
+        document.getElementById(to).value = e.target.value;
+        saveEnvironments();
+      });
+    });
+    kind.addEventListener('change', () => {
+      input.placeholder = kind.value === 'project' ? 'ID du projet (ou historique)' : 'Nom de l\'objet (ou historique)';
+      input.value = '';
+      input.focus();
+    });
+
+    async function quickCompare(item) {
+      const source = document.getElementById('quickSource').value;
+      const target = document.getElementById('quickTarget').value;
+      if (!source || !target || source === target) {
+        setQuickStatus('<span style="color:red;">Source et cible doivent être renseignés et différents.</span>');
+        return;
+      }
+      const btn = document.getElementById('btnQuick');
+      btn.disabled = true;
+      try {
+        let objects;
+        if (kind.value === 'project') {
+          setQuickStatus('<span class="spinner"></span> Objets du projet ' + escHtml(item.value) + '...');
+          const resp = await fetch(`${API_BASE}/project-objects?prj=${encodeURIComponent(item.value)}`, {
+            headers: { 'X-JDE-Connection': getConnection() }
+          });
+          if (!resp.ok) throw new Error(apiErrorMessage(resp, await resp.text()));
+          const data = await resp.json();
+          objects = (data.objects || []).map(o => ({ name: o.objectName, type: o.objectType, desc: o.description }));
+          if (!objects.length) { setQuickStatus('Aucun objet trouvé pour le projet ' + escHtml(item.value) + '.'); return; }
+          addHistory('project', [item]);
+          objects.forEach(o => { objectToProject[o.name] = item.value; });
+        } else {
+          objects = [{ name: item.value, type: item.tag, desc: item.desc }];
+          addHistory('object', [item]);
+        }
+
+        const replace = document.getElementById('quickReplace').checked || !lastResult
+          || lastResult.source !== source || lastResult.target !== target;
+        setQuickStatus('<span class="spinner"></span> Comparaison en cours...');
+        const result = await fetchComparison(source, target, objects.map(o => o.name));
+        if (replace) selectedObjects = [];
+        objects.forEach(o => { if (!selectedObjects.find(x => x.name === o.name)) selectedObjects.push(o); });
+        renderSelectedObjects();
+        updateCompareButton();
+        displayResults(replace ? result : mergeResults(lastResult, result));
+        setQuickStatus(`${result.totalObjects} objet(s) ${replace ? 'comparé(s)' : 'ajouté(s) en tête des résultats'}.`);
+      } catch (err) {
+        setQuickStatus(`<span style="color:red;">Erreur: ${escHtml(err.message)}</span>`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    attachAutocomplete(input, document.getElementById('quickSuggestions'), () => kind.value, quickCompare);
+    document.getElementById('btnQuick').addEventListener('click', () => {
+      const val = input.value.trim().toUpperCase();
+      if (!val) { input.focus(); return; }
+      input.value = '';
+      hideSuggestions('quickSuggestions');
+      quickCompare({ value: val, desc: '', tag: '' });
+    });
+  }
+
   // --- Affichage des résultats ---
   let activeBadges = new Set(['=', '≠', '↑', '?', '-', '✓', '!']); // tous actifs par défaut
 
@@ -427,6 +573,8 @@
     const section = document.getElementById('resultsSection');
     section.style.display = '';
     activeBadges = new Set(['=', '≠', '↑', '?', '-', '✓', '!']);
+    lastResult = result;
+    syncQuickEnvs();
 
     document.getElementById('summaryTotal').textContent = `Total: ${result.totalObjects}`;
     document.getElementById('summaryIdentical').textContent = `= Identiques: ${result.identical}`;
@@ -456,7 +604,7 @@
     tbody.innerHTML = '';
 
     // Regrouper par projet si le mode est projet ou statut
-    const hasProjects = (currentMode === 'project' || currentMode === 'status') && Object.keys(objectToProject).length > 0;
+    const hasProjects = result.data.some(d => objectToProject[d.objectName]);
 
     if (hasProjects) {
       renderGroupedByProject(tbody, result);
@@ -829,6 +977,7 @@
   function clearAll() {
     selectedObjects = [];
     objectToProject = {};
+    lastResult = null;
     renderSelectedObjects();
     document.getElementById('objectInput').value = '';
     document.getElementById('projectInput').value = '';

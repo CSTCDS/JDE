@@ -84,6 +84,24 @@
 
     <!-- Résultats -->
     <div id="resultsSection" class="results-section" style="display:none;">
+      <!-- Recherche complémentaire sans quitter les résultats -->
+      <div id="quickSearch" class="quick-search">
+        <span class="quick-label">Autre recherche :</span>
+        <select id="quickSource" class="form-control form-control-sm" title="Environnement source"></select>
+        <span>→</span>
+        <select id="quickTarget" class="form-control form-control-sm" title="Environnement cible"></select>
+        <select id="quickKind" class="form-control form-control-sm" title="Type de recherche">
+          <option value="object">Objet</option>
+          <option value="project">Projet</option>
+        </select>
+        <div class="autocomplete-wrapper quick-wrapper">
+          <input type="text" id="quickInput" class="form-control form-control-sm" maxlength="20" placeholder="Nom de l'objet (ou historique)">
+          <div id="quickSuggestions" class="suggestions-list"></div>
+        </div>
+        <label class="quick-replace" title="Sinon les objets sont ajoutés aux résultats affichés"><input type="checkbox" id="quickReplace"> Remplacer les résultats</label>
+        <button id="btnQuick" class="btn btn-primary btn-sm">Comparer</button>
+        <span id="quickStatus" class="status-msg"></span>
+      </div>
       <div class="results-header">
         <div class="results-summary">
           <span id="summaryTotal"></span>

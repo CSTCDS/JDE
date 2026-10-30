@@ -85,6 +85,9 @@ L'arborescence reste disponible pour afficher ou télécharger un autre fichier 
 - Le bouton « Voir » affiche le diff d'un fichier (`POST /api/jdecompare/package-diff`).
 - Si les specs sont identiques mais que les paquets diffèrent, l'objet est classé « ≠ Différent ».
 - Les valeurs `SIUPMJ` / `SIUPMT` (date et heure de mise à jour) sont ignorées dans les fichiers texte du package : un fichier qui ne diffère que par elles est identique, et ces lignes n'apparaissent pas dans le diff.
+- **Autre recherche** (barre en haut des résultats) : choisir source → cible, Objet ou Projet, puis saisir/choisir un nom ; les objets comparés sont ajoutés en tête des résultats (ou les remplacent si la case « Remplacer les résultats » est cochée ou si les environnements ont changé).
+- **Historique** : les objets et projets recherchés (50 derniers) sont proposés dans la liste déroulante dès le clic dans le champ (🕘, × pour retirer une entrée, « Effacer l'historique »). Les flèches ↑/↓ et Entrée permettent de choisir au clavier.
+- **Environnements mémorisés** : le dernier couple source / cible est restauré à l'ouverture de la page, sans limite de durée. Historique et environnements sont stockés dans le navigateur (localStorage), donc propres à chaque poste et navigateur.
 - Le détail de l'objet affiche le « Résumé repository » (comparaison des specs F9860/F9861/F98780R).
 
 ### JDE Compare : analyse IA des écarts (Azure OpenAI)

@@ -1,5 +1,5 @@
-using System.Data;
-using System.Diagnostics;
+﻿using System.Data;
+using System.Text;
 using System.Text.RegularExpressions;
 using Oracle.ManagedDataAccess.Client;
 using Utils.Colas.Infrastructure;
@@ -9,14 +9,13 @@ namespace Utils.Colas.Modules.JdeCompare;
 public sealed class JdeCompareOptions
 {
     public string ObjectLibrarianSchema { get; set; } = "OL920";
-    public string ObjectBrowserPath { get; set; } = @"Tools\ObjectBrowser\ObjectBrowser.exe";
     public int MaxObjects { get; set; } = 500;
     public int CommandTimeoutSeconds { get; set; } = 60;
-    public int ObjectBrowserTimeoutSeconds { get; set; } = 120;
+    // Analyse IA proposée au-delà de ce nombre de lignes de diff affichées (une modification = 2 lignes).
+    public int AiDiffLineThreshold { get; set; } = 2;
 }
 
 public sealed record CompareRequest(string? Source, string? Target, string[]? Objects);
-public sealed record OBCompareRequest(string? Object, string? Source, string? Target);
 public sealed record PackageDiffRequest(string? Object, string? Source, string? Target, string? Path);
 
 // JDE Compare (ex NERcompare) : comparaison de specs d'objets JDE entre deux environnements.
@@ -31,7 +30,6 @@ public static partial class JdeCompareEndpoints
     public static IEndpointRouteBuilder MapJdeCompare(this IEndpointRouteBuilder app)
     {
         var configuration = app.ServiceProvider.GetRequiredService<IConfiguration>();
-        var env = app.ServiceProvider.GetRequiredService<IWebHostEnvironment>();
         var opt = new JdeCompareOptions();
         configuration.GetSection("JdeCompare").Bind(opt);
         var logger = app.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("JdeCompare");
@@ -56,7 +54,6 @@ public static partial class JdeCompareEndpoints
                 throw new InvalidOperationException($"JdeCompare : identifiant de schéma invalide '{id}'.");
 
         var ol = opt.ObjectLibrarianSchema;
-        var obExePath = Path.IsPathRooted(opt.ObjectBrowserPath) ? opt.ObjectBrowserPath : Path.Combine(env.ContentRootPath, opt.ObjectBrowserPath);
         var group = app.MapGroup("/api/jdecompare");
         group.AddEndpointFilter(async (ctx, next) =>
         {
@@ -295,19 +292,19 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
             });
         });
 
-        // Diff d'un fichier du package F98780R entre source et cible (détail à la demande).
-        group.MapPost("/package-diff", async (HttpContext ctx, ConnectionStore store, PackageDiffRequest? body) =>
+        // Chargement commun à /package-diff et /ai-analysis : fichier `path` du package F98780R côté source et cible.
+        async Task<(IResult? Error, FileDiff? Diff)> LoadFileDiff(HttpContext ctx, ConnectionStore store, PackageDiffRequest? body)
         {
             if (body is null || string.IsNullOrWhiteSpace(body.Object) || string.IsNullOrWhiteSpace(body.Source) || string.IsNullOrWhiteSpace(body.Target) || string.IsNullOrWhiteSpace(body.Path))
-                return Results.BadRequest(new { error = "Paramètres object, source, target et path requis." });
+                return (Results.BadRequest(new { error = "Paramètres object, source, target et path requis." }), null);
             var objName = body.Object.Trim();
             if (!ObjectNameRegex().IsMatch(objName))
-                return Results.BadRequest(new { error = "Nom d'objet invalide." });
+                return (Results.BadRequest(new { error = "Nom d'objet invalide." }), null);
             if (!environments.TryGetValue(body.Source, out var srcConnName) || !store.TryGet(srcConnName, out var srcCfg) ||
                 !environments.TryGetValue(body.Target, out var tgtConnName) || !store.TryGet(tgtConnName, out var tgtCfg))
-                return Results.BadRequest(new { error = "Environnement source ou cible inconnu." });
+                return (Results.BadRequest(new { error = "Environnement source ou cible inconnu." }), null);
             if (!srcCfg.HasCredentials || !tgtCfg.HasCredentials)
-                return Results.BadRequest(new { error = "UserId / Password manquants (secrets.json)." });
+                return (Results.BadRequest(new { error = "UserId / Password manquants (secrets.json)." }), null);
             var srcSchema = environments.Keys.First(k => k.Equals(body.Source, StringComparison.OrdinalIgnoreCase));
             var tgtSchema = environments.Keys.First(k => k.Equals(body.Target, StringComparison.OrdinalIgnoreCase));
 
@@ -319,82 +316,67 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
                 var s = src is null ? null : JdePackage.Find(src, body.Path);
                 var t = tgt is null ? null : JdePackage.Find(tgt, body.Path);
                 if (s is null && t is null)
-                    return Results.NotFound(new { error = $"{body.Path} absent des deux packages." });
+                    return (Results.NotFound(new { error = $"{body.Path} absent des deux packages." }), null);
 
                 var binary = (s is not null && !JdePackage.IsText(s.Content)) || (t is not null && !JdePackage.IsText(t.Content));
-                if (binary)
-                    return Results.Ok(new
-                    {
-                        path = body.Path, binary, identical = s?.Sha256 == t?.Sha256,
-                        srcSize = s?.Size ?? 0, tgtSize = t?.Size ?? 0, diff = Array.Empty<object>()
-                    });
-                var srcText = s is null ? "" : JdePackage.Decode(s.Content);
-                var tgtText = t is null ? "" : JdePackage.Decode(t.Content);
-                return Results.Ok(new
-                {
-                    path = body.Path, binary, identical = srcText == tgtText,
-                    srcSize = s?.Size ?? 0, tgtSize = t?.Size ?? 0,
-                    srcLineCount = s is null ? 0 : srcText.Split('\n').Length,
-                    tgtLineCount = t is null ? 0 : tgtText.Split('\n').Length,
-                    diff = LineDiff.Generate(srcText, tgtText)
-                });
+                var srcText = s is null || binary ? "" : JdePackage.Decode(s.Content);
+                var tgtText = t is null || binary ? "" : JdePackage.Decode(t.Content);
+                return (null, new FileDiff(objName, srcSchema, tgtSchema, body.Path, s, t, binary, srcText, tgtText,
+                    binary ? [] : LineDiff.Generate(srcText, tgtText)));
             }
             catch (InvalidDataException)
             {
-                return Results.Json(new { error = "Le BLOB lu n'est pas une archive ZIP valide." }, statusCode: 500);
+                return (Results.Json(new { error = "Le BLOB lu n'est pas une archive ZIP valide." }, statusCode: 500), null);
             }
             catch (PackageLimitException ex)
             {
-                return Results.Json(new { error = ex.Message }, statusCode: 413);
+                return (Results.Json(new { error = ex.Message }, statusCode: 413), null);
             }
+        }
+
+        // Diff d'un fichier du package F98780R entre source et cible (détail à la demande).
+        group.MapPost("/package-diff", async (HttpContext ctx, ConnectionStore store, AzureOpenAiClient ai, PackageDiffRequest? body) =>
+        {
+            var (error, d) = await LoadFileDiff(ctx, store, body);
+            if (error is not null) return error;
+            var screenLines = LineDiff.ScreenLines(d!.Lines);
+            return Results.Ok(new
+            {
+                path = d.Path, binary = d.Binary,
+                identical = d.Binary ? d.Src?.Sha256 == d.Tgt?.Sha256 : d.SrcText == d.TgtText,
+                srcSize = d.Src?.Size ?? 0, tgtSize = d.Tgt?.Size ?? 0,
+                srcLineCount = d.Src is null || d.Binary ? 0 : d.SrcText.Split('\n').Length,
+                tgtLineCount = d.Tgt is null || d.Binary ? 0 : d.TgtText.Split('\n').Length,
+                diff = d.Lines,
+                screenLines,
+                // Analyse IA proposée quand l'écart dépasse le seuil (en lignes affichées).
+                aiAvailable = ai.Enabled && !d.Binary && screenLines > opt.AiDiffLineThreshold
+            });
         });
 
-        // Comparaison Event Rules via ObjectBrowser.exe (export texte source / cible puis diff)
-        group.MapPost("/ob-compare", async (HttpContext ctx, OBCompareRequest? body) =>
+        // Analyse IA d'un écart : le diff est recalculé côté serveur (aucun texte libre transmis par le navigateur).
+        group.MapPost("/ai-analysis", async (HttpContext ctx, ConnectionStore store, AzureOpenAiClient ai, PackageDiffRequest? body) =>
         {
-            if (body is null || string.IsNullOrWhiteSpace(body.Object) || string.IsNullOrWhiteSpace(body.Source) || string.IsNullOrWhiteSpace(body.Target))
-                return Results.BadRequest(new { error = "Paramètres object, source et target requis." });
-            var objName = body.Object.Trim();
-            if (!ObjectNameRegex().IsMatch(objName))
-                return Results.BadRequest(new { error = "Nom d'objet invalide." });
-            var src = environments.Keys.FirstOrDefault(k => k.Equals(body.Source, StringComparison.OrdinalIgnoreCase));
-            var tgt = environments.Keys.FirstOrDefault(k => k.Equals(body.Target, StringComparison.OrdinalIgnoreCase));
-            if (src is null || tgt is null)
-                return Results.BadRequest(new { error = "Environnement source ou cible inconnu." });
-            if (!File.Exists(obExePath))
-                return Results.Ok(new { success = false, error = $"ObjectBrowser.exe introuvable ({obExePath})." });
+            if (!ai.Enabled)
+                return Results.Json(new { error = "Analyse IA non configurée (section AzureOpenAI)." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            var (error, d) = await LoadFileDiff(ctx, store, body);
+            if (error is not null) return error;
+            if (d!.Binary)
+                return Results.BadRequest(new { error = "Fichier binaire : analyse IA impossible." });
+            var screenLines = LineDiff.ScreenLines(d.Lines);
+            if (screenLines <= opt.AiDiffLineThreshold)
+                return Results.BadRequest(new { error = $"Écart trop faible pour une analyse IA ({screenLines} ligne(s))." });
 
-            var tempDir = Path.Combine(Path.GetTempPath(), "Utils.Colas_OB", Guid.NewGuid().ToString("N"));
-            var srcDir = Path.Combine(tempDir, "source");
-            var tgtDir = Path.Combine(tempDir, "target");
-            Directory.CreateDirectory(srcDir);
-            Directory.CreateDirectory(tgtDir);
+            logger.LogInformation("Analyse IA demandée par {User} : {Object} {Path} {Source}->{Target} ({Lines} lignes de diff).",
+                ctx.User.Identity?.Name, d.Object, d.Path, d.Source, d.Target, screenLines);
             try
             {
-                var timeout = TimeSpan.FromSeconds(opt.ObjectBrowserTimeoutSeconds);
-                var srcResult = await RunObjectBrowser(obExePath, objName, src, srcDir, timeout, ctx.RequestAborted);
-                var tgtResult = await RunObjectBrowser(obExePath, objName, tgt, tgtDir, timeout, ctx.RequestAborted);
-                if (!string.IsNullOrWhiteSpace(srcResult) && !string.IsNullOrWhiteSpace(tgtResult))
-                    return Results.Ok(new { success = false, error = $"Source: {srcResult} | Cible: {tgtResult}" });
-
-                var srcFiles = Directory.GetFiles(srcDir, "*.txt", SearchOption.AllDirectories);
-                var tgtFiles = Directory.GetFiles(tgtDir, "*.txt", SearchOption.AllDirectories);
-                var srcContent = srcFiles.Length > 0 ? await File.ReadAllTextAsync(srcFiles[0], ctx.RequestAborted) : "";
-                var tgtContent = tgtFiles.Length > 0 ? await File.ReadAllTextAsync(tgtFiles[0], ctx.RequestAborted) : "";
-
-                return Results.Ok(new
-                {
-                    success = true, objectName = objName, source = src, target = tgt,
-                    srcFile = srcFiles.Length > 0 ? Path.GetFileName(srcFiles[0]) : "",
-                    tgtFile = tgtFiles.Length > 0 ? Path.GetFileName(tgtFiles[0]) : "",
-                    srcLineCount = srcContent.Split('\n').Length,
-                    tgtLineCount = tgtContent.Split('\n').Length,
-                    diff = LineDiff.Generate(srcContent, tgtContent)
-                });
+                var analysis = await ai.ChatAsync(AiPrompt.System, AiPrompt.User(d, ai.Options.MaxInputChars), ctx.RequestAborted);
+                return Results.Ok(new { analysis });
             }
-            finally
+            catch (AiException ex)
             {
-                try { Directory.Delete(tempDir, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                return Results.Json(new { error = ex.Message }, statusCode: ex.StatusCode);
             }
         });
 
@@ -419,40 +401,4 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
         => string.IsNullOrWhiteSpace(cfg.SystemSchema) ? cfg.DefaultSchema : cfg.SystemSchema;
 
     private static string Str(OracleDataReader r, int i) => r.IsDBNull(i) ? "" : r.GetValue(i).ToString()!.Trim();
-
-    private static async Task<string> RunObjectBrowser(string exePath, string objectName, string environment, string outputDir, TimeSpan timeout, CancellationToken ct)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = exePath,
-            WorkingDirectory = Path.GetDirectoryName(exePath)!,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        foreach (var a in new[] { $"-o{objectName}", $"-c{environment}", "-lC", $"-d{outputDir}\\", "-b1", "-mT", "-n", "-i" })
-            psi.ArgumentList.Add(a);
-
-        using var proc = Process.Start(psi);
-        if (proc is null) return "Impossible de démarrer ObjectBrowser.exe";
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-        var stdout = proc.StandardOutput.ReadToEndAsync(cts.Token);
-        var stderr = proc.StandardError.ReadToEndAsync(cts.Token);
-        try
-        {
-            await proc.WaitForExitAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            try { proc.Kill(true); } catch (InvalidOperationException) { }
-            return $"ObjectBrowser interrompu (délai {timeout.TotalSeconds:0}s dépassé ou requête annulée)";
-        }
-        await stdout;
-        var error = await stderr;
-        if (proc.ExitCode != 0 && string.IsNullOrWhiteSpace(error)) error = $"Exit code: {proc.ExitCode}";
-        return error;
-    }
 }

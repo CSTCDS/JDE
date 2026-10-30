@@ -11,7 +11,7 @@
   2. Arrêt du site et du pool
   3. Sauvegarde <SitePath>.bak-<horodatage> (les -KeepBackups plus récentes sont conservées)
   4. Publication en miroir ; conservés sur le serveur : secrets.json, appsettings.Production.json,
-     keys\, logs\ et binaires ObjectBrowser (sauf s'ils sont fournis dans la livraison)
+     keys\ et logs\
   5. Redémarrage du pool et du site
   6. Contrôle /health ; en cas d'échec, retour automatique à la sauvegarde
 
@@ -56,7 +56,7 @@ $UpdId = '__UPD_ID__'
 $ExpectedSha256 = '__ZIP_SHA256__'
 $Commit = '__COMMIT__'
 
-$PreserveFiles = @('secrets.json', 'appsettings.Production.json', 'ObjectBrowser.exe', 'PWCommon.dll', 'app_offline.htm')
+$PreserveFiles = @('secrets.json', 'appsettings.Production.json', 'app_offline.htm')
 $PreserveDirs = @('logs', 'keys')
 $SitePath = [IO.Path]::GetFullPath($SitePath).TrimEnd('\')
 $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -251,12 +251,6 @@ try {
     Write-Step '4/6 Publication'
     $copyStarted = $true
     Invoke-Robocopy $source $SitePath (@('/XF') + $PreserveFiles + @('/XD') + $PreserveDirs)
-    foreach ($bin in 'ObjectBrowser.exe', 'PWCommon.dll') {
-        $src = Join-Path $source "Tools\ObjectBrowser\$bin"
-        $dst = Join-Path $SitePath "Tools\ObjectBrowser\$bin"
-        if (Test-Path $src) { Copy-Item $src $dst -Force }
-        elseif (-not (Test-Path $dst)) { Write-Warning "$bin absent : la comparaison ObjectBrowser de JDE Compare ne fonctionnera pas." }
-    }
     New-Item -ItemType Directory -Force -Path (Join-Path $SitePath 'keys') | Out-Null
     if (-not (Test-Path (Join-Path $SitePath 'secrets.json'))) {
         Copy-Item (Join-Path $source 'secrets.template.json') (Join-Path $SitePath 'secrets.json')

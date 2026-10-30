@@ -1,4 +1,6 @@
 using System.Data;
+using System.Text;
+using System.Text.Json.Serialization;
 using Oracle.ManagedDataAccess.Client;
 using Utils.Colas.Infrastructure;
 
@@ -296,36 +298,69 @@ public static class JdeDates
     }
 }
 
+public sealed record DiffLine(
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("line")] int Line,
+    [property: JsonPropertyName("content"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Content = null,
+    [property: JsonPropertyName("srcContent"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SrcContent = null,
+    [property: JsonPropertyName("tgtContent"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TgtContent = null);
+
 public static class LineDiff
 {
     // Diff séquentiel simple (lignes ajoutées / supprimées / modifiées), limité à 500 entrées.
-    public static List<object> Generate(string srcContent, string tgtContent, int max = 500)
+    public static List<DiffLine> Generate(string srcContent, string tgtContent, int max = 500)
     {
         var s = srcContent.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
         var t = tgtContent.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
-        var diff = new List<object>();
+        var diff = new List<DiffLine>();
         int si = 0, ti = 0;
         while (si < s.Length || ti < t.Length)
         {
-            if (si >= s.Length) { diff.Add(new { type = "added", line = ti + 1, content = t[ti] }); ti++; }
-            else if (ti >= t.Length) { diff.Add(new { type = "removed", line = si + 1, content = s[si] }); si++; }
+            if (si >= s.Length) { diff.Add(new("added", ti + 1, t[ti])); ti++; }
+            else if (ti >= t.Length) { diff.Add(new("removed", si + 1, s[si])); si++; }
             else if (s[si] == t[ti]) { si++; ti++; }
             else
             {
                 var inTgt = Array.IndexOf(t, s[si], ti + 1);
                 var inSrc = Array.IndexOf(s, t[ti], si + 1);
                 if (inTgt >= 0 && (inSrc < 0 || inTgt - ti <= inSrc - si))
-                    while (ti < inTgt) { diff.Add(new { type = "added", line = ti + 1, content = t[ti] }); ti++; }
+                    while (ti < inTgt) { diff.Add(new("added", ti + 1, t[ti])); ti++; }
                 else if (inSrc >= 0)
-                    while (si < inSrc) { diff.Add(new { type = "removed", line = si + 1, content = s[si] }); si++; }
-                else { diff.Add(new { type = "modified", line = si + 1, srcContent = s[si], tgtContent = t[ti] }); si++; ti++; }
+                    while (si < inSrc) { diff.Add(new("removed", si + 1, s[si])); si++; }
+                else { diff.Add(new("modified", si + 1, SrcContent: s[si], TgtContent: t[ti])); si++; ti++; }
             }
             if (diff.Count >= max)
             {
-                diff.Add(new { type = "truncated", line = 0, content = $"... diff tronqué ({Math.Max(s.Length, t.Length)} lignes au total)" });
+                diff.Add(new("truncated", 0, $"... diff tronqué ({Math.Max(s.Length, t.Length)} lignes au total)"));
                 break;
             }
         }
         return diff;
+    }
+
+    // Lignes occupées à l'écran (une modification affiche l'ancienne et la nouvelle ligne).
+    public static int ScreenLines(IEnumerable<DiffLine> diff) => diff.Sum(d => d.Type switch { "modified" => 2, "truncated" => 0, _ => 1 });
+
+    // Diff textuel compact pour l'analyse IA (- source, + cible), tronqué à maxChars.
+    public static string ToText(IEnumerable<DiffLine> diff, int maxChars)
+    {
+        var sb = new StringBuilder();
+        foreach (var d in diff)
+        {
+            var chunk = d.Type switch
+            {
+                "added" => $"+ L{d.Line}: {d.Content}\n",
+                "removed" => $"- L{d.Line}: {d.Content}\n",
+                "modified" => $"- L{d.Line}: {d.SrcContent}\n+ L{d.Line}: {d.TgtContent}\n",
+                _ => $"{d.Content}\n"
+            };
+            if (sb.Length + chunk.Length > maxChars)
+            {
+                sb.Append("... (diff tronqué pour l'analyse)\n");
+                break;
+            }
+            sb.Append(chunk);
+        }
+        return sb.ToString();
     }
 }

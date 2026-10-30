@@ -38,11 +38,12 @@ public sealed class ConnectionStore
     private const string LegacyProtectorPurpose = "NERcompare.OracleConnection";
 
     private readonly Dictionary<string, OracleConnectionConfig> _connections;
+    private readonly IDataProtector _protector;
 
     public ConnectionStore(IConfiguration configuration, IDataProtectionProvider dataProtection, ILogger<ConnectionStore> logger)
     {
         _connections = new(StringComparer.OrdinalIgnoreCase);
-        var protector = dataProtection.CreateProtector(LegacyProtectorPurpose);
+        var protector = _protector = dataProtection.CreateProtector(LegacyProtectorPurpose);
 
         foreach (var section in configuration.GetSection("OracleConnections").GetChildren())
         {
@@ -104,6 +105,9 @@ public sealed class ConnectionStore
         return $"User Id={c.UserId};Password={c.Password};Data Source={ds};Connection Timeout=30";
     }
 
+    // Secret quelconque (ex. clé d'API) : valeur en clair ou ENC:, même format que les identifiants Oracle.
+    public string Unprotect(string value, string label) => Decrypt(value, _protector, label);
+
     // ENC:<base64> : DPAPI (format Lire .h / PackTool), sinon ASP.NET Data Protection (format NERcompare).
     private static string Decrypt(string value, IDataProtector protector, string connection)
     {
@@ -126,7 +130,7 @@ public sealed class ConnectionStore
         }
         catch (CryptographicException ex)
         {
-            throw new InvalidOperationException($"Impossible de déchiffrer les identifiants de la connexion '{connection}' (identité / clés différentes ?).", ex);
+            throw new InvalidOperationException($"Impossible de déchiffrer le secret '{connection}' (identité / clés différentes ?).", ex);
         }
     }
 }

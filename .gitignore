@@ -11,10 +11,6 @@ TestResults/
 secrets.json
 appsettings.Local.json
 
-# Binaires tiers JDE (copiÃ©s manuellement sur le serveur, cf. README)
-Tools/ObjectBrowser/*.exe
-Tools/ObjectBrowser/*.dll
-
 # Livraisons UPD (zip + script générés par build-update.ps1)
 livraisons/
 appsettings.Production.json

@@ -26,6 +26,17 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, "keys")));
 builder.Services.AddSingleton<ConnectionStore>();
 
+// Analyse IA (JDE Compare) : Azure OpenAI, proxy sortant optionnel.
+builder.Services.AddHttpClient(AzureOpenAiClient.HttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(() =>
+    {
+        var proxy = AzureOpenAiClient.Bind(builder.Configuration).Proxy;
+        return string.IsNullOrWhiteSpace(proxy)
+            ? new SocketsHttpHandler()
+            : new SocketsHttpHandler { Proxy = new System.Net.WebProxy(proxy) { UseDefaultCredentials = true }, UseProxy = true };
+    });
+builder.Services.AddSingleton<AzureOpenAiClient>();
+
 builder.Services.AddResponseCompression(o =>
 {
     o.EnableForHttps = true;
@@ -46,6 +57,7 @@ var app = builder.Build();
 
 // Fail fast : déchiffrement des connexions et validation de la configuration des modules au démarrage.
 app.Services.GetRequiredService<ConnectionStore>();
+app.Services.GetRequiredService<AzureOpenAiClient>();
 
 app.UseExceptionHandler();
 if (!app.Environment.IsDevelopment())

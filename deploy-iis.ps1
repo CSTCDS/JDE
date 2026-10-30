@@ -39,7 +39,7 @@ if (-not (Test-Path "IIS:\AppPools\$AppPoolName")) { New-WebAppPool -Name $AppPo
 Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name managedRuntimeVersion -Value ''
 Set-ItemProperty "IIS:\AppPools\$AppPoolName" -Name startMode -Value 'AlwaysRunning'
 
-# 3. Sauvegarde + copie (secrets.json, keys, logs et ObjectBrowser de la cible conservés)
+# 3. Sauvegarde + copie (secrets.json, keys et logs de la cible conservés)
 Write-Host '[3/6] Sauvegarde et copie...' -ForegroundColor Cyan
 $siteExists = Test-Path "IIS:\Sites\$SiteName"
 if ($siteExists -and (Get-WebAppPoolState $AppPoolName).Value -eq 'Started') {
@@ -52,15 +52,9 @@ if (Test-Path $SitePath) {
     Write-Host "  Sauvegarde : $backup"
 }
 New-Item -ItemType Directory -Force -Path $SitePath, "$SitePath\logs", "$SitePath\keys" | Out-Null
-robocopy $publishDir $SitePath /MIR /XF secrets.json ObjectBrowser.exe PWCommon.dll /XD logs keys /R:2 /W:3 /NFL /NDL /NJH /NJS | Out-Null
+robocopy $publishDir $SitePath /MIR /XF secrets.json /XD logs keys /R:2 /W:3 /NFL /NDL /NJH /NJS | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy a échoué (code $LASTEXITCODE)" }
 
-$obSource = Join-Path $projectDir 'Tools\ObjectBrowser'
-foreach ($bin in 'ObjectBrowser.exe', 'PWCommon.dll') {
-    if (-not (Test-Path "$SitePath\Tools\ObjectBrowser\$bin") -and (Test-Path "$obSource\$bin")) {
-        Copy-Item "$obSource\$bin" "$SitePath\Tools\ObjectBrowser\$bin"
-    }
-}
 if (-not (Test-Path "$SitePath\secrets.json")) {
     Copy-Item "$projectDir\secrets.template.json" "$SitePath\secrets.json"
     Write-Warning "secrets.json créé depuis le modèle : renseigner les identifiants puis chiffrer avec Tools\encrypt-secrets.ps1 -Machine"

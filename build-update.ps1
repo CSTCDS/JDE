@@ -58,11 +58,6 @@ if ($LASTEXITCODE -ne 0) { throw 'dotnet publish a échoué' }
 
 $leaked = Get-ChildItem $siteDir -Recurse -File -Include 'secrets.json', 'appsettings.Local.json'
 if ($leaked) { throw "Fichier sensible présent dans la publication : $($leaked.FullName -join ', ')" }
-foreach ($bin in 'ObjectBrowser.exe', 'PWCommon.dll') {
-    if (-not (Test-Path (Join-Path $siteDir "Tools\ObjectBrowser\$bin"))) {
-        Write-Warning "$bin absent de la livraison : le serveur conservera sa version actuelle."
-    }
-}
 
 $manifest = [ordered]@{
     id      = $id

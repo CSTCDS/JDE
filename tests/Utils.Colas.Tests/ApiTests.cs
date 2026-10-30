@@ -312,9 +312,27 @@ public class ApiTests(UtilsColasFactory factory) : IClassFixture<UtilsColasFacto
     }
 
     [Fact]
-    public async Task JdeCompare_ObCompare_RejectsUnknownEnvironment()
+    public async Task JdeCompare_AiAnalysis_Returns503WhenNotConfigured()
     {
-        var res = await Client().PostAsJsonAsync("/api/jdecompare/ob-compare", new { @object = "P0101", source = "DV920", target = "ZZ" });
+        var res = await Client().PostAsJsonAsync("/api/jdecompare/ai-analysis", new { @object = "F0101", source = "DV920", target = "PD920", path = "a.h" });
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, res.StatusCode);
+        Assert.Contains("non configurée", await res.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("F0101", "DV920", "PD920", "", "requis")]
+    [InlineData("F0101", "DV920", "ZZ", "a.h", "inconnu")]
+    [InlineData("F0101", "DV920", "PD920", "a.h", "manquants")]
+    public async Task JdeCompare_AiAnalysis_ValidatesInputWhenConfigured(string obj, string src, string tgt, string path, string expected)
+    {
+        using var configured = factory.WithWebHostBuilder(b => b.ConfigureAppConfiguration((_, cfg) => cfg.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AzureOpenAI:Endpoint"] = "https://exemple.openai.azure.com",
+            ["AzureOpenAI:Deployment"] = "gpt-test",
+            ["AzureOpenAI:ApiKey"] = "cle-test"
+        })));
+        var res = await configured.CreateClient().PostAsJsonAsync("/api/jdecompare/ai-analysis", new { @object = obj, source = src, target = tgt, path });
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Contains(expected, await res.Content.ReadAsStringAsync());
     }
 }

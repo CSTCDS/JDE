@@ -478,14 +478,6 @@
       });
     });
 
-    // Events bouton Comparer NER (ObjectBrowser)
-    tbody.querySelectorAll('.btn-ob').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        runOBCompare(btn.dataset.obj, btn.dataset.src, btn.dataset.tgt, btn.dataset.idx);
-      });
-    });
-
     // Events diff d'un fichier du package F98780R
     tbody.querySelectorAll('.btn-pkg').forEach(btn => {
       btn.addEventListener('click', (e) => { e.stopPropagation(); runPackageDiff(btn); });
@@ -563,7 +555,6 @@
       <td><small>${escHtml(item.target.user || '-')} ${escHtml(item.target.date || '')} ${escHtml(item.target.time || '')}</small><br>
           <small>${item.target.recordCount} enreg, ${formatSize(item.target.blobSize)}</small></td>
       <td><small>${escHtml(item.differences || '-')}</small></td>
-      <td><button class="btn btn-xs btn-ob" data-obj="${escHtml(item.objectName)}" data-src="${escHtml(result.source)}" data-tgt="${escHtml(result.target)}" data-idx="${idx}">Comparer</button></td>
     `;
     tbody.appendChild(tr);
 
@@ -572,13 +563,12 @@
     detailTr.className = 'detail-row collapsed';
     detailTr.id = `detail-${idx}`;
     if (projectGroup) detailTr.dataset.projectGroup = projectGroup;
-    detailTr.innerHTML = `<td colspan="8">
+    detailTr.innerHTML = `<td colspan="7">
       <strong>Détail comparaison :</strong><br>
       Source (${escHtml(result.source)}) : ${item.source.recordCount} enregistrement(s), ${formatSize(item.source.blobSize)}<br>
       Cible (${escHtml(result.target)}) : ${item.target.recordCount} enregistrement(s), ${formatSize(item.target.blobSize)}<br>
-      ${item.differences ? 'Résumé : ' + escHtml(item.differences) : 'Aucune différence détectée.'}
+      ${item.differences ? 'Résumé repository : ' + escHtml(item.differences) : 'Aucune différence détectée.'}
       ${renderPackage(item, idx, result)}
-      <div id="ob-diff-${idx}" class="ob-diff-container"></div>
     </td>`;
     tbody.appendChild(detailTr);
   }
@@ -623,8 +613,15 @@
           : `Fichier binaire : ${formatSize(data.srcSize)} (source) / ${formatSize(data.tgtSize)} (cible), contenu différent.`;
       } else {
         html = `${escHtml(btn.dataset.src)} : ${data.srcLineCount} lignes — ${escHtml(btn.dataset.tgt)} : ${data.tgtLineCount} lignes<br>` + renderDiff(data.diff, 'Contenu identique');
+        if (data.aiAvailable) {
+          html += `<div class="ai-block"><button class="btn btn-xs btn-ai">✨ Analyse IA</button>
+            <span class="ai-hint">Écart de ${data.screenLines} lignes : demander une explication de l'écart.</span>
+            <div class="ai-result"></div></div>`;
+        }
       }
       box.innerHTML = html;
+      const aiBtn = box.querySelector('.btn-ai');
+      if (aiBtn) aiBtn.addEventListener('click', (e) => { e.stopPropagation(); runAiAnalysis(btn, aiBtn, box.querySelector('.ai-result')); });
       box.dataset.loaded = '1';
       btn.textContent = 'Masquer';
     } catch (err) {
@@ -634,9 +631,43 @@
     }
   }
 
+  // Analyse IA (Azure OpenAI) d'un écart de fichier : le serveur recalcule le diff à partir de l'objet et du chemin.
+  async function runAiAnalysis(pkgBtn, aiBtn, out) {
+    aiBtn.disabled = true;
+    out.innerHTML = '<span class="spinner"></span> Analyse IA en cours...';
+    try {
+      const resp = await fetch(`${API_BASE}/ai-analysis`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-JDE-Connection': getConnection() },
+        body: JSON.stringify({ object: pkgBtn.dataset.obj, source: pkgBtn.dataset.src, target: pkgBtn.dataset.tgt, path: pkgBtn.dataset.path })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || data.error || resp.statusText);
+      out.innerHTML = `<div class="ai-analysis">${renderAiText(data.analysis)}</div>
+        <div class="ai-disclaimer">Analyse générée par IA : à vérifier.</div>`;
+      aiBtn.style.display = 'none';
+      aiBtn.nextElementSibling.style.display = 'none';
+    } catch (err) {
+      out.innerHTML = `<span style="color:red;">Erreur IA : ${escHtml(err.message)}</span>`;
+      aiBtn.disabled = false;
+    }
+  }
+
+  // Mise en forme minimale (texte échappé) : **gras**, `code`, titres #, puces.
+  function renderAiText(text) {
+    return escHtml(text || '').split('\n').map(line => {
+      let l = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
+      const h = l.match(/^#{1,4}\s+(.*)$/);
+      if (h) return `<div class="ai-title">${h[1]}</div>`;
+      const b = l.match(/^(\s*)[-*•]\s+(.*)$/);
+      if (b) return `<div class="ai-bullet" style="margin-left:${b[1].length * 6 + 8}px">• ${b[2]}</div>`;
+      return l.trim() ? `<div>${l}</div>` : '<div class="ai-gap"></div>';
+    }).join('');
+  }
+
   function renderDiff(diff, identicalLabel) {
     if (!diff || diff.length === 0) return `<span class="result-identical">✓ ${escHtml(identicalLabel)}</span>`;
-    let html = `<div class="ob-diff-summary">${diff.length} différence(s) détectée(s)</div><div class="ob-diff-lines">`;
+    let html = `<div class="diff-summary">${diff.length} différence(s) détectée(s)</div><div class="diff-lines">`;
     diff.forEach(d => {
       if (d.type === 'added') {
         html += `<div class="diff-line diff-added"><span class="diff-ln">+${d.line}</span> ${escHtml(d.content)}</div>`;
@@ -770,51 +801,4 @@
     clearAll();
     document.getElementById('btnRecommencer').style.display = 'none';
   };
-
-  // --- ObjectBrowser NER Compare ---
-  async function runOBCompare(objectName, source, target, idx) {
-    const btn = document.querySelector(`.btn-ob[data-idx="${idx}"]`);
-    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
-
-    // Ouvrir le détail pour voir le résultat
-    const detail = document.getElementById(`detail-${idx}`);
-    if (detail && detail.classList.contains('collapsed')) {
-      detail.classList.remove('collapsed');
-      const expandBtn = document.querySelector(`.expand-btn[data-idx="${idx}"]`);
-      if (expandBtn) expandBtn.textContent = '▼';
-    }
-
-    const diffContainer = document.getElementById(`ob-diff-${idx}`);
-    if (diffContainer) diffContainer.innerHTML = '<span class="spinner"></span> Extraction NER en cours (ObjectBrowser)...';
-
-    try {
-      const conn = getConnection();
-      const resp = await fetch(`${API_BASE}/ob-compare`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-JDE-Connection': conn },
-        body: JSON.stringify({ object: objectName, source, target })
-      });
-
-      if (!resp.ok) {
-        let errMsg = resp.statusText;
-        try { const err = await resp.json(); errMsg = err.detail || err.error || errMsg; } catch(e) { try { errMsg = await resp.text() || errMsg; } catch(e2){} }
-        throw new Error(errMsg);
-      }
-
-      const data = await resp.json();
-      if (!data.success) {
-        diffContainer.innerHTML = `<span style="color:red;">Erreur OB: ${escHtml(data.error)}</span>`;
-        return;
-      }
-
-      // Afficher le diff
-      let html = `<hr><strong>Comparaison NER ObjectBrowser</strong> — ${escHtml(source)} (${data.srcLineCount} lignes) vs ${escHtml(target)} (${data.tgtLineCount} lignes)<br>`;
-      html += renderDiff(data.diff, 'Event Rules identiques');
-      diffContainer.innerHTML = html;
-    } catch (err) {
-      if (diffContainer) diffContainer.innerHTML = `<span style="color:red;">Erreur: ${escHtml(err.message)}</span>`;
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Comparer'; }
-    }
-  }
 })();

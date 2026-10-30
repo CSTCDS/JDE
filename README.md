@@ -10,11 +10,11 @@ Fusion de **Lire .h** (ex-`Utils.htm` d'appli-jade03) et **JDE Compare** (ex-NER
 | `Program.cs` | Hébergement : HTTPS, auth Windows (Negotiate), en-têtes de sécurité, cache, `/health`, API communes (`/api/version`, `/api/windows-user`, `/api/connections`) |
 | `Infrastructure/OracleConnections.cs` | Modèle de connexion Oracle unifié + `ConnectionStore` (déchiffrement `ENC:`) |
 | `Modules/LireH/` | API `/api/lireh/*` (lecture/téléchargement des en-têtes `.h`) |
-| `Modules/JdeCompare/` | API `/api/jdecompare/*` (comparaison des specs, ObjectBrowser) |
+| `Modules/JdeCompare/` | API `/api/jdecompare/*` (comparaison des specs et des paquets, analyse IA des écarts) |
 | `wwwroot/index.html` | Menu, alimenté par `wwwroot/config/utilities.json` |
 | `wwwroot/common/` | Bandeau partagé (`banner.js` / `banner.css`, sélecteur de connexion) |
 | `wwwroot/lireh/`, `wwwroot/jdecompare/` | Pages des utilitaires |
-| `Tools/ObjectBrowser/` | Binaires ObjectBrowser (**non versionnés**, à copier depuis NERcompare) |
+| `Tools/encrypt-secrets.ps1` | Chiffrement DPAPI des secrets (`secrets.json`) |
 | `tests/Utils.Colas.Tests/` | Tests xUnit (auth, cache, en-têtes, endpoints, logique de comparaison) |
 | `build-update.ps1`, `Deploy/Install-Update.template.ps1` | Construction et installation des livraisons UPD (voir plus bas) |
 
@@ -84,6 +84,25 @@ L'arborescence reste disponible pour afficher ou télécharger un autre fichier 
 - Les fichiers modifiés, présents seulement en source ou présents seulement en cible sont listés dans le détail de l'objet.
 - Le bouton « Voir » affiche le diff d'un fichier (`POST /api/jdecompare/package-diff`).
 - Si les specs sont identiques mais que les paquets diffèrent, l'objet est classé « ≠ Différent ».
+- Le détail de l'objet affiche le « Résumé repository » (comparaison des specs F9860/F9861/F98780R).
+
+### JDE Compare : analyse IA des écarts (Azure OpenAI)
+
+Si le diff d'un fichier dépasse `JdeCompare:AiDiffLineThreshold` lignes affichées (2 par défaut ; une ligne modifiée compte pour 2), un bouton **✨ Analyse IA** est proposé.
+L'analyse produit une synthèse, les changements regroupés par thème et les impacts à vérifier.
+Le serveur recalcule le diff à partir de l'objet et du chemin du fichier : le navigateur n'envoie aucun texte. Chaque demande est journalisée (utilisateur, objet, fichier).
+
+Configuration (vide = fonction désactivée, le bouton n'apparaît pas) :
+
+| Clé | Fichier serveur | Exemple |
+|---|---|---|
+| `AzureOpenAI:Endpoint` | `appsettings.Production.json` | `https://<ressource>.openai.azure.com` |
+| `AzureOpenAI:Deployment` | `appsettings.Production.json` | `gpt-4o` |
+| `AzureOpenAI:ApiKey` | `secrets.json` (chiffrable avec `Tools\encrypt-secrets.ps1 -Machine`) | |
+| `AzureOpenAI:Proxy` | `appsettings.Production.json` (optionnel, authentifié avec l'identité du pool) | `http://proxy:8080` |
+| `AzureOpenAI:ApiVersion`, `TimeoutSeconds`, `MaxInputChars` | `appsettings.json` | `2024-10-21`, `90`, `30000` |
+
+Le diff (contenu des sources de l'objet) est envoyé à la ressource Azure OpenAI configurée.
 
 ## Exécution locale
 
@@ -134,7 +153,7 @@ Si Windows bloque le script (fichier marqué « provenant d'un autre ordinateur 
 | 1. Contrôles | SHA-256 du zip, Hosting Bundle .NET 10, site IIS sur `C:\sites\JDE`, contenu du zip. **Rien n'est arrêté tant que ces contrôles ne sont pas passés.** |
 | 2. Arrêt | site + pool (si le pool est partagé : `app_offline.htm` à la place de l'arrêt du pool) |
 | 3. Sauvegarde | `C:\sites\JDE.bak-<horodatage>` ; les 5 plus récentes sont conservées (`-KeepBackups`) |
-| 4. Publication | copie **miroir** (les fichiers absents de la livraison sont supprimés) ; conservés : `secrets.json`, `appsettings.Production.json`, `keys\`, `logs\`, binaires ObjectBrowser (remplacés seulement s'ils sont livrés) ; droits NTFS du pool ; auth Windows imposée, anonyme désactivé |
+| 4. Publication | copie **miroir** (les fichiers absents de la livraison sont supprimés) ; conservés : `secrets.json`, `appsettings.Production.json`, `keys\`, `logs\` ; droits NTFS du pool ; auth Windows imposée, anonyme désactivé |
 | 5. Redémarrage | pool + site |
 | 6. Vérification | `GET /health` ; si l'application répond en erreur : **retour arrière automatique**. Si le résultat est non concluant (certificat, 401 IIS…), l'opérateur confirme manuellement. |
 

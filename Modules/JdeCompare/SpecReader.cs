@@ -308,21 +308,24 @@ public sealed record DiffLine(
 public static class LineDiff
 {
     // Diff séquentiel simple (lignes ajoutées / supprimées / modifiées), limité à 500 entrées.
-    public static List<DiffLine> Generate(string srcContent, string tgtContent, int max = 500)
+    // key : forme normalisée d'une ligne pour la comparaison (ex. valeurs SIUPMJ/SIUPMT effacées) ; le diff affiche les lignes d'origine.
+    public static List<DiffLine> Generate(string srcContent, string tgtContent, int max = 500, Func<string, string>? key = null)
     {
         var s = srcContent.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
         var t = tgtContent.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+        var sk = key is null ? s : s.Select(key).ToArray();
+        var tk = key is null ? t : t.Select(key).ToArray();
         var diff = new List<DiffLine>();
         int si = 0, ti = 0;
         while (si < s.Length || ti < t.Length)
         {
             if (si >= s.Length) { diff.Add(new("added", ti + 1, t[ti])); ti++; }
             else if (ti >= t.Length) { diff.Add(new("removed", si + 1, s[si])); si++; }
-            else if (s[si] == t[ti]) { si++; ti++; }
+            else if (sk[si] == tk[ti]) { si++; ti++; }
             else
             {
-                var inTgt = Array.IndexOf(t, s[si], ti + 1);
-                var inSrc = Array.IndexOf(s, t[ti], si + 1);
+                var inTgt = Array.IndexOf(tk, sk[si], ti + 1);
+                var inSrc = Array.IndexOf(sk, tk[ti], si + 1);
                 if (inTgt >= 0 && (inSrc < 0 || inTgt - ti <= inSrc - si))
                     while (ti < inTgt) { diff.Add(new("added", ti + 1, t[ti])); ti++; }
                 else if (inSrc >= 0)

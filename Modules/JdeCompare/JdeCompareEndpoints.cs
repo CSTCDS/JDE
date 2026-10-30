@@ -324,7 +324,7 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
                 var srcText = s is null || binary ? "" : JdePackage.Decode(s.Content);
                 var tgtText = t is null || binary ? "" : JdePackage.Decode(t.Content);
                 return (null, new FileDiff(objName, srcSchema, tgtSchema, body.Path, s, t, binary, srcText, tgtText,
-                    binary ? [] : LineDiff.Generate(srcText, tgtText)));
+                    binary ? [] : LineDiff.Generate(srcText, tgtText, key: JdePackage.MaskUpdateStamps)));
             }
             catch (InvalidDataException)
             {
@@ -347,7 +347,7 @@ WHERE TRIM(f222.POOMWPRJID) = TRIM(:prj) ORDER BY f222.POOMWOBJID");
             return Results.Ok(new
             {
                 path = d.Path, binary = d.Binary,
-                identical = d.Binary ? d.Src?.Sha256 == d.Tgt?.Sha256 : d.SrcText == d.TgtText,
+                identical = d.Binary ? d.Src?.Sha256 == d.Tgt?.Sha256 : d.Src is not null && d.Tgt is not null && d.Lines.Count == 0,
                 srcSize = d.Src?.Size ?? 0, tgtSize = d.Tgt?.Size ?? 0,
                 srcLineCount = d.Src is null || d.Binary ? 0 : d.SrcText.Split('\n').Length,
                 tgtLineCount = d.Tgt is null || d.Binary ? 0 : d.TgtText.Split('\n').Length,

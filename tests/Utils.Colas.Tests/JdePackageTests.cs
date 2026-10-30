@@ -96,6 +96,36 @@ public class JdePackageTests
         Assert.Equal("absent", JdePackage.Compare(null, null).Status);
     }
 
+    [Theory]
+    [InlineData("<SIUPMJ>125300</SIUPMJ>", "<SIUPMJ>126001</SIUPMJ>")]
+    [InlineData("<F9860 SIOBNM=\"X\" SIUPMJ=\"125300\" SIUPMT=\"101010\"/>", "<F9860 SIOBNM=\"X\" SIUPMJ=\"126001\" SIUPMT=\"235959\"/>")]
+    [InlineData("SIUPMT=93005", "SIUPMT=120000")]
+    [InlineData("\"siupmj\": \"125300\",", "\"siupmj\": \"126001\",")]
+    [InlineData("<col name=\"SIUPMJ\" value=\"125300\"/>", "<col name=\"SIUPMJ\" value=\"126001\"/>")]
+    [InlineData("<col name=\"SIUPMT\">101010</col>", "<col name=\"SIUPMT\">235959</col>")]
+    public void Compare_IgnoresUpdateStampsOnly(string a, string b)
+    {
+        var src = JdePackage.Open(Zip(("specs.zip", Zip(("s/X.xml", T("<r>\n" + a + "\n</r>"))))));
+        var tgt = JdePackage.Open(Zip(("specs.zip", Zip(("s/X.xml", T("<r>\n" + b + "\n</r>"))))));
+        Assert.Equal("identique", JdePackage.Compare(src, tgt).Status);
+        Assert.Empty(LineDiff.Generate("<r>\n" + a, "<r>\n" + b, key: JdePackage.MaskUpdateStamps));
+    }
+
+    [Fact]
+    public void Compare_UpdateStampPlusRealChange_IsDifferent()
+    {
+        var src = JdePackage.Open(Zip(("X.xml", T("<F9860 SIMD=\"Old\" SIUPMJ=\"125300\"/>\n<SIUPMT>1</SIUPMT>"))));
+        var tgt = JdePackage.Open(Zip(("X.xml", T("<F9860 SIMD=\"New\" SIUPMJ=\"126001\"/>\n<SIUPMT>2</SIUPMT>"))));
+        Assert.Equal("different", JdePackage.Compare(src, tgt).Status);
+
+        // Seule la ligne avec un vrai changement reste dans le diff (affichée avec ses valeurs d'origine).
+        var diff = LineDiff.Generate(JdePackage.Decode(src[0].Content), JdePackage.Decode(tgt[0].Content), key: JdePackage.MaskUpdateStamps);
+        var line = Assert.Single(diff);
+        Assert.Equal("modified", line.Type);
+        Assert.Contains("125300", line.SrcContent);
+        Assert.Contains("SIMD=\"New\"", line.TgtContent);
+    }
+
     [Fact]
     public void MergePackage_TurnsIdenticalSpecsIntoDifferent()
     {

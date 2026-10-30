@@ -84,6 +84,7 @@ L'arborescence reste disponible pour afficher ou télécharger un autre fichier 
 - Les fichiers modifiés, présents seulement en source ou présents seulement en cible sont listés dans le détail de l'objet.
 - Le bouton « Voir » affiche le diff d'un fichier (`POST /api/jdecompare/package-diff`).
 - Si les specs sont identiques mais que les paquets diffèrent, l'objet est classé « ≠ Différent ».
+- Les valeurs `SIUPMJ` / `SIUPMT` (date et heure de mise à jour) sont ignorées dans les fichiers texte du package : un fichier qui ne diffère que par elles est identique, et ces lignes n'apparaissent pas dans le diff.
 - Le détail de l'objet affiche le « Résumé repository » (comparaison des specs F9860/F9861/F98780R).
 
 ### JDE Compare : analyse IA des écarts (Azure OpenAI)

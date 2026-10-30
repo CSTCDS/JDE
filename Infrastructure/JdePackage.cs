@@ -2,6 +2,7 @@ using System.Data;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Oracle.ManagedDataAccess.Client;
 using Oracle.ManagedDataAccess.Types;
 
@@ -185,6 +186,7 @@ public static class JdePackage
     }
 
     // Comparaison fichier par fichier sur le contenu (les dates des entrées zip sont ignorées).
+    // Un fichier texte dont seules les valeurs SIUPMJ/SIUPMT (date/heure de mise à jour JDE) diffèrent est identique.
     public static PackageComparison Compare(IReadOnlyList<PackageFile>? source, IReadOnlyList<PackageFile>? target)
     {
         if (source is null && target is null) return new("absent", "Absent des deux environnements", 0, []);
@@ -197,7 +199,7 @@ public static class JdePackage
         foreach (var s in source)
         {
             if (!tgt.Remove(s.Path, out var t)) diffs.Add(new(s.Path, "source-seule", s.Size, 0));
-            else if (s.Sha256 != t.Sha256) diffs.Add(new(s.Path, "modifie", s.Size, t.Size));
+            else if (s.Sha256 != t.Sha256 && !SameIgnoringUpdateStamps(s, t)) diffs.Add(new(s.Path, "modifie", s.Size, t.Size));
             else identical++;
         }
         diffs.AddRange(tgt.Values.Select(t => new PackageFileDiff(t.Path, "cible-seule", 0, t.Size)));
@@ -205,5 +207,21 @@ public static class JdePackage
         return diffs.Count == 0
             ? new("identique", $"Package identique ({identical} fichier(s))", identical, diffs)
             : new("different", $"Package : {diffs.Count} fichier(s) différent(s), {identical} identique(s)", identical, diffs);
+    }
+
+    // Valeur d'un champ SIUPMJ/SIUPMT : <SIUPMJ>v</SIUPMJ>, SIUPMJ="v", SIUPMJ=v, "SIUPMJ":"v", name="SIUPMJ" value="v".
+    private static readonly Regex UpdateStampRegex = new(
+        @"\b(SIUPM[JT])\b(""?'?[ \t]*(?:[=:>]|[ \t]value[ \t]*=)[ \t]*[""']?)[^<""'\s,;]*",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    // Efface les valeurs SIUPMJ/SIUPMT (le nombre de lignes est conservé).
+    public static string MaskUpdateStamps(string text) => UpdateStampRegex.Replace(text, "$1$2");
+
+    private static bool SameIgnoringUpdateStamps(PackageFile s, PackageFile t)
+    {
+        if (!IsText(s.Content) || !IsText(t.Content)) return false;
+        string a = Decode(s.Content), b = Decode(t.Content);
+        if (!UpdateStampRegex.IsMatch(a) && !UpdateStampRegex.IsMatch(b)) return false;
+        return MaskUpdateStamps(a) == MaskUpdateStamps(b);
     }
 }
